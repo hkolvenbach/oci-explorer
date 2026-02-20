@@ -22,6 +22,14 @@ Follow established standards and conventions. When in doubt, look up the relevan
 - API spec served at its standard path `/api/openapi.yaml`, not under `/docs/`
 - Keep documentation in sync with code: if you change an endpoint, update the spec
 
+### Commit Messages
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/) format: `type(scope): description`
+- Common types: `feat`, `fix`, `docs`, `ci`, `build`, `refactor`, `test`, `chore`
+- Scope is optional but encouraged (e.g., `ci(release)`, `build(docker)`)
+- Keep the subject line under 72 characters
+- Use the body for additional context when needed
+
 ### Go Conventions
 
 - Module path: `github.com/hkolvenbach/oci-explorer`

@@ -199,6 +199,70 @@ Then inspect:
 curl "http://localhost:8080/api/inspect?image=ghcr.io/myorg/private-image:v1"
 ```
 
+## Supply Chain Security
+
+All release artifacts are signed and attested for end-to-end supply chain verification.
+
+| Artifact | Protection |
+|----------|-----------|
+| Docker image | Cosign keyless signature (Sigstore OIDC) |
+| Docker image | SLSA Build Provenance attestation |
+| Docker image | Embedded SBOM (BuildKit) |
+| Docker image | OpenVEX attestation (govulncheck-based) |
+| Release binaries | GitHub Artifact Attestation (SLSA provenance) |
+| Runtime base | `gcr.io/distroless/static-debian12` (zero CVEs, no shell) |
+
+### Verify image signature
+
+```bash
+cosign verify \
+  --certificate-identity-regexp="https://github.com/hkolvenbach/oci-explorer" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/hkolvenbach/oci-explorer:latest
+```
+
+### Verify SLSA provenance
+
+```bash
+cosign verify-attestation \
+  --type slsaprovenance \
+  --certificate-identity-regexp="https://github.com/hkolvenbach/oci-explorer" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/hkolvenbach/oci-explorer:latest
+```
+
+### Verify OpenVEX attestation
+
+```bash
+cosign verify-attestation \
+  --type openvex \
+  --certificate-identity-regexp="https://github.com/hkolvenbach/oci-explorer" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/hkolvenbach/oci-explorer:latest
+```
+
+### Verify binary provenance (GitHub Artifact Attestation)
+
+```bash
+gh attestation verify oci-explorer-*-linux-amd64.tar.gz \
+  --repo hkolvenbach/oci-explorer
+```
+
+### Inspect embedded SBOM
+
+```bash
+docker buildx imagetools inspect ghcr.io/hkolvenbach/oci-explorer:latest \
+  --format '{{ json .SBOM }}'
+```
+
+### Explore with OCI Image Explorer
+
+You can also use OCI Image Explorer itself to visually inspect all of these supply chain artifacts — signatures, SBOMs, attestations, and provenance — by pointing it at its own image:
+
+```
+http://localhost:8080/?image=ghcr.io/hkolvenbach/oci-explorer:latest
+```
+
 ## Project Structure
 
 ```

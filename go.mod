@@ -2,9 +2,12 @@ module github.com/hkolvenbach/oci-explorer
 
 go 1.24.0
 
+toolchain go1.24.13
+
 require (
 	github.com/google/go-containerregistry v0.20.7
 	github.com/gorilla/mux v1.8.1
+	golang.org/x/sync v0.18.0
 )
 
 require (
@@ -18,6 +21,5 @@ require (
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/vbatts/tar-split v0.12.2 // indirect
-	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 )
