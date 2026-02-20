@@ -1,0 +1,3 @@
+[submodule "tools/sbom-extractor"]
+	path = tools/sbom-extractor
+	url = https://github.com/jimmykarily/sbom-extractor.git

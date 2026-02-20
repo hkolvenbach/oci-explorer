@@ -1,0 +1,697 @@
+openapi: 3.0.3
+info:
+  title: OCI Image Explorer API
+  description: |
+    REST API for inspecting OCI (Open Container Initiative) container images.
+
+    This API provides endpoints to:
+    - Inspect container image structures (manifests, layers, configurations)
+    - List repository tags
+    - Download SBOM (Software Bill of Materials) content
+    - Check server health
+
+    No authentication is required. Registry authentication is handled server-side
+    using the Docker credential keychain.
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  contact:
+    name: OCI Image Explorer
+
+servers:
+  - url: http://localhost:8080/api
+    description: Local development server
+
+tags:
+  - name: Health
+    description: Server health endpoints
+  - name: Images
+    description: Image inspection endpoints
+  - name: Tags
+    description: Repository tag endpoints
+  - name: SBOM
+    description: SBOM download endpoints
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns server health status, platform, and version information.
+      operationId: getHealth
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                success: true
+                data:
+                  status: healthy
+                  platform: darwin/arm64
+                  version: "0.1.0"
+
+  /inspect:
+    get:
+      summary: Inspect container image
+      description: |
+        Fetches and returns the complete OCI structure of a container image including:
+        - Image index (for multi-platform images)
+        - Platform manifests
+        - Image configuration
+        - Filesystem layers
+        - Referrers (SBOMs, signatures, attestations)
+
+        The endpoint automatically detects referrers using:
+        1. OCI 1.1 Referrers API (`/v2/<name>/referrers/<digest>`)
+        2. Referrers tag schema fallback (`sha256-<hash>` tags)
+        3. Docker BuildKit attestation manifest parsing
+      operationId: inspectImage
+      tags:
+        - Images
+      parameters:
+        - name: image
+          in: query
+          required: true
+          description: |
+            Image reference in any valid format:
+            - `alpine:latest`
+            - `nginx:1.25`
+            - `ghcr.io/owner/repo:tag`
+            - `registry.example.com/image@sha256:abc123...`
+          schema:
+            type: string
+          examples:
+            dockerHub:
+              summary: Docker Hub image
+              value: alpine:latest
+            ghcr:
+              summary: GitHub Container Registry
+              value: ghcr.io/owner/repo:v1.0.0
+            digest:
+              summary: By digest
+              value: nginx@sha256:abc123def456...
+      responses:
+        '200':
+          description: Image information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InspectResponse'
+        '400':
+          description: Invalid request (missing or malformed image parameter)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingParam:
+                  summary: Missing image parameter
+                  value:
+                    success: false
+                    error: image parameter is required
+                invalidRef:
+                  summary: Invalid image reference
+                  value:
+                    success: false
+                    error: "invalid image reference: could not parse reference"
+        '500':
+          description: Server error (registry errors, network issues)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "failed to fetch image: MANIFEST_UNKNOWN: manifest unknown"
+
+  /tags:
+    get:
+      summary: List repository tags
+      description: Returns all tags available in a repository.
+      operationId: listTags
+      tags:
+        - Tags
+      parameters:
+        - name: repository
+          in: query
+          required: true
+          description: |
+            Repository name (without tag or digest):
+            - `library/alpine`
+            - `ghcr.io/owner/repo`
+            - `registry.example.com/path/to/image`
+          schema:
+            type: string
+          examples:
+            dockerHub:
+              summary: Docker Hub official image
+              value: library/alpine
+            ghcr:
+              summary: GitHub Container Registry
+              value: ghcr.io/owner/repo
+      responses:
+        '200':
+          description: Tags retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagsResponse'
+              example:
+                success: true
+                data:
+                  - "3.14"
+                  - "3.15"
+                  - "3.16"
+                  - "latest"
+        '400':
+          description: Invalid request (missing or malformed repository parameter)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: repository parameter is required
+        '500':
+          description: Server error (registry errors, network issues)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "NAME_UNKNOWN: repository name not known to registry"
+
+  /sbom:
+    get:
+      summary: Download SBOM content
+      description: |
+        Downloads the SBOM content from an attestation manifest.
+
+        The endpoint:
+        1. Fetches the attestation manifest at the specified digest
+        2. Searches layers for SBOM predicate types (SPDX, CycloneDX, Syft)
+        3. Extracts the SBOM from the in-toto attestation envelope
+        4. Returns the formatted SBOM JSON
+
+        **Note:** This endpoint returns raw SBOM content, not wrapped in the standard API response format.
+      operationId: downloadSBOM
+      tags:
+        - SBOM
+      parameters:
+        - name: repository
+          in: query
+          required: true
+          description: Full repository name
+          schema:
+            type: string
+          example: index.docker.io/library/alpine
+        - name: digest
+          in: query
+          required: true
+          description: Digest of the attestation manifest containing the SBOM
+          schema:
+            type: string
+            pattern: '^sha256:[a-f0-9]{64}$'
+          example: sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+      responses:
+        '200':
+          description: SBOM content retrieved successfully
+          headers:
+            Content-Disposition:
+              description: Suggested filename for download
+              schema:
+                type: string
+              example: attachment; filename="sbom-a1b2c3d4e5f6.json"
+          content:
+            application/json:
+              schema:
+                type: object
+                description: |
+                  SBOM content in SPDX or CycloneDX format.
+                  The exact schema depends on the SBOM format.
+              example:
+                spdxVersion: "SPDX-2.3"
+                dataLicense: "CC0-1.0"
+                SPDXID: "SPDXRef-DOCUMENT"
+                name: "alpine"
+                packages:
+                  - SPDXID: "SPDXRef-Package-alpine-base"
+                    name: "alpine-base"
+                    versionInfo: "3.19.0-r0"
+        '400':
+          description: Invalid request (missing parameters)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: repository and digest parameters are required
+        '500':
+          description: Server error (SBOM not found, parsing error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notFound:
+                  summary: No SBOM in attestation
+                  value:
+                    success: false
+                    error: no SBOM layer found in attestation manifest
+                fetchError:
+                  summary: Failed to fetch attestation
+                  value:
+                    success: false
+                    error: "failed to fetch attestation manifest: MANIFEST_UNKNOWN"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required:
+            - status
+            - platform
+            - version
+          properties:
+            status:
+              type: string
+              enum: [healthy]
+              example: healthy
+            platform:
+              type: string
+              description: Server platform (OS/architecture)
+              example: darwin/arm64
+            version:
+              type: string
+              description: Application version
+              example: "0.1.0"
+
+    InspectResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/ImageInfo'
+
+    TagsResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            type: string
+          example: ["3.18", "3.19", "latest"]
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Human-readable error message
+          example: image parameter is required
+
+    ImageInfo:
+      type: object
+      description: Complete OCI image structure
+      required:
+        - repository
+        - digest
+        - tags
+        - referrers
+      properties:
+        repository:
+          type: string
+          description: Full repository name including registry
+          example: index.docker.io/library/alpine
+        tag:
+          type: string
+          description: Image tag (if provided in reference)
+          example: latest
+        digest:
+          type: string
+          description: Image digest (index digest for multi-platform images)
+          pattern: '^sha256:[a-f0-9]{64}$'
+          example: sha256:c5b1261d6d3e43071626931fc004f70149baeba2c8ec672bd4f27761f8e1ad6b
+        created:
+          type: string
+          format: date-time
+          description: Image creation timestamp
+          example: "2024-01-27T00:30:48Z"
+        architecture:
+          type: string
+          description: Primary platform architecture
+          example: amd64
+        os:
+          type: string
+          description: Primary platform OS
+          example: linux
+        platformDigest:
+          type: string
+          description: Digest of the resolved platform manifest (may differ from digest for multi-platform images)
+          pattern: '^sha256:[a-f0-9]{64}$'
+        imageIndex:
+          $ref: '#/components/schemas/ImageIndex'
+        manifest:
+          $ref: '#/components/schemas/Manifest'
+        config:
+          $ref: '#/components/schemas/ImageConfig'
+        tags:
+          type: array
+          items:
+            type: string
+          description: List of tags (currently contains only the requested tag)
+          example: ["latest"]
+        referrers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Referrer'
+          description: List of referrers (SBOMs, attestations, signatures)
+
+    ImageIndex:
+      type: object
+      description: OCI image index (manifest list) for multi-platform images
+      required:
+        - schemaVersion
+        - mediaType
+        - manifests
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [2]
+          example: 2
+        mediaType:
+          type: string
+          enum:
+            - application/vnd.oci.image.index.v1+json
+            - application/vnd.docker.distribution.manifest.list.v2+json
+          example: application/vnd.oci.image.index.v1+json
+        manifests:
+          type: array
+          items:
+            $ref: '#/components/schemas/IndexManifest'
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          description: Optional annotations
+
+    IndexManifest:
+      type: object
+      description: Platform manifest entry in an image index
+      required:
+        - mediaType
+        - digest
+        - size
+      properties:
+        mediaType:
+          type: string
+          example: application/vnd.oci.image.manifest.v1+json
+        digest:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+          example: sha256:6457d53fb065d6f250e1504b9bc42d5b6c65941d57532c072d929dd0628977d0
+        size:
+          type: integer
+          format: int64
+          example: 585
+        platform:
+          $ref: '#/components/schemas/Platform'
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+        artifactType:
+          type: string
+          description: OCI 1.1 artifact type (for artifact manifests)
+        config:
+          $ref: '#/components/schemas/ImageConfig'
+
+    Platform:
+      type: object
+      description: Platform specification
+      required:
+        - architecture
+        - os
+      properties:
+        architecture:
+          type: string
+          description: CPU architecture
+          enum: [amd64, arm64, arm, "386", ppc64le, s390x, riscv64]
+          example: amd64
+        os:
+          type: string
+          description: Operating system
+          enum: [linux, windows, darwin]
+          example: linux
+        variant:
+          type: string
+          description: Platform variant (e.g., v7, v8 for ARM)
+          example: v8
+
+    Manifest:
+      type: object
+      description: OCI image manifest
+      required:
+        - schemaVersion
+        - mediaType
+        - config
+        - layers
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [2]
+          example: 2
+        mediaType:
+          type: string
+          enum:
+            - application/vnd.oci.image.manifest.v1+json
+            - application/vnd.docker.distribution.manifest.v2+json
+          example: application/vnd.oci.image.manifest.v1+json
+        config:
+          $ref: '#/components/schemas/Descriptor'
+        layers:
+          type: array
+          items:
+            $ref: '#/components/schemas/Descriptor'
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+
+    Descriptor:
+      type: object
+      description: OCI content descriptor
+      required:
+        - mediaType
+        - digest
+        - size
+      properties:
+        mediaType:
+          type: string
+          example: application/vnd.oci.image.layer.v1.tar+gzip
+        digest:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+          example: sha256:4abcf20661432fb2d719aaf90656f55c287f8ca915dc1c92ec14ff61e67fbaf8
+        size:
+          type: integer
+          format: int64
+          example: 3408729
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+        platform:
+          $ref: '#/components/schemas/Platform'
+
+    ImageConfig:
+      type: object
+      description: OCI image configuration
+      required:
+        - architecture
+        - os
+      properties:
+        created:
+          type: string
+          format: date-time
+          example: "2024-01-27T00:30:48Z"
+        author:
+          type: string
+          example: "Docker Inc."
+        architecture:
+          type: string
+          example: amd64
+        os:
+          type: string
+          example: linux
+        config:
+          $ref: '#/components/schemas/ContainerConfig'
+        rootfs:
+          $ref: '#/components/schemas/RootFS'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryEntry'
+
+    ContainerConfig:
+      type: object
+      description: Container runtime configuration
+      properties:
+        User:
+          type: string
+          description: Default user
+          example: "1000:1000"
+        ExposedPorts:
+          type: object
+          additionalProperties:
+            type: object
+          description: Exposed ports map
+          example:
+            "80/tcp": {}
+            "443/tcp": {}
+        Env:
+          type: array
+          items:
+            type: string
+          description: Environment variables
+          example:
+            - "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            - "NGINX_VERSION=1.25.3"
+        Entrypoint:
+          type: array
+          items:
+            type: string
+          description: Container entrypoint
+          example: ["/docker-entrypoint.sh"]
+        Cmd:
+          type: array
+          items:
+            type: string
+          description: Default command
+          example: ["nginx", "-g", "daemon off;"]
+        WorkingDir:
+          type: string
+          description: Working directory
+          example: /app
+        Labels:
+          type: object
+          additionalProperties:
+            type: string
+          description: Image labels
+          example:
+            maintainer: "NGINX Docker Maintainers"
+            version: "1.25.3"
+
+    RootFS:
+      type: object
+      description: Root filesystem information
+      required:
+        - type
+        - diff_ids
+      properties:
+        type:
+          type: string
+          enum: [layers]
+          example: layers
+        diff_ids:
+          type: array
+          items:
+            type: string
+            pattern: '^sha256:[a-f0-9]{64}$'
+          description: Layer diff IDs (uncompressed digests)
+          example:
+            - "sha256:d4fc045c9e3a848011de66f34b81f052d4f2c15a17bb196d637e526349601820"
+
+    HistoryEntry:
+      type: object
+      description: Build history entry
+      properties:
+        created:
+          type: string
+          format: date-time
+          example: "2024-01-27T00:30:48Z"
+        created_by:
+          type: string
+          description: Command that created this layer
+          example: "/bin/sh -c #(nop) ADD file:... in / "
+        empty_layer:
+          type: boolean
+          description: True if this entry didn't create a filesystem layer
+          example: false
+        comment:
+          type: string
+          description: Optional comment
+
+    Referrer:
+      type: object
+      description: OCI 1.1 referrer (SBOM, signature, attestation, etc.)
+      required:
+        - type
+        - mediaType
+        - digest
+        - size
+        - artifactType
+      properties:
+        type:
+          type: string
+          description: Classified artifact type
+          enum: [sbom, signature, attestation, vulnerability-scan, artifact]
+          example: sbom
+        mediaType:
+          type: string
+          example: application/vnd.oci.image.manifest.v1+json
+        digest:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+          example: sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+        size:
+          type: integer
+          format: int64
+          description: Artifact size in bytes
+          example: 1234567
+        artifactType:
+          type: string
+          description: OCI artifact type URI
+          example: https://spdx.dev/Document
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          description: Artifact annotations
+          example:
+            in-toto.io/predicate-type: "https://spdx.dev/Document"
+            vnd.docker.reference.digest: "sha256:6457d53fb..."
+            vnd.docker.reference.type: "attestation-manifest"

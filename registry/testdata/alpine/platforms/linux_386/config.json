@@ -1,0 +1,33 @@
+{
+  "architecture": "386",
+  "created": "2025-12-18T00:13:19.19318154Z",
+  "history": [
+    {
+      "created": "2025-12-18T00:13:19.19318154Z",
+      "created_by": "ADD alpine-minirootfs-3.23.2-x86.tar.gz / # buildkit",
+      "comment": "buildkit.dockerfile.v0"
+    },
+    {
+      "created": "2025-12-18T00:13:19.19318154Z",
+      "created_by": "CMD [\"/bin/sh\"]",
+      "comment": "buildkit.dockerfile.v0",
+      "empty_layer": true
+    }
+  ],
+  "os": "linux",
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:ea6e2875c30ef1561fb8262ebe165de366fe5725b07c45051d72665111dbf84a"
+    ]
+  },
+  "config": {
+    "Cmd": [
+      "/bin/sh"
+    ],
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "WorkingDir": "/"
+  }
+}

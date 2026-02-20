@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCI Image Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            850: '#172033',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: #1e293b; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #64748b; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+    <div id="app">
+        <!-- Header -->
+        <header class="bg-slate-800 border-b border-slate-700 sticky top-0 z-10">
+            <div class="max-w-7xl mx-auto px-4 py-4">
+                <div class="flex items-center justify-between flex-wrap gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h1 class="text-xl font-bold">OCI Image Explorer</h1>
+                            <p class="text-xs text-slate-400">Visualize container image structures</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="setView('details')" id="btn-details" class="px-3 py-2 rounded-lg flex items-center gap-2 text-sm bg-blue-500/20 text-blue-300">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+                            Details
+                        </button>
+                        <button onclick="setView('graph')" id="btn-graph" class="px-3 py-2 rounded-lg flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"></path></svg>
+                            Graph
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Search Bar -->
+                <div class="mt-4 flex gap-2">
+                    <div class="flex-1 relative">
+                        <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                        <input type="text" id="image-input" value="alpine:latest"
+                            placeholder="Enter image reference (e.g., nginx:latest, ghcr.io/org/image:tag)"
+                            class="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono text-sm"
+                            onkeypress="if(event.key === 'Enter') inspectImage()">
+                    </div>
+                    <button onclick="inspectImage()" id="inspect-btn"
+                        class="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 rounded-lg font-semibold transition-colors flex items-center gap-2">
+                        <svg id="inspect-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                        <span id="inspect-text">Inspect</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 py-6">
+            <!-- Error Display -->
+            <div id="error-container" class="hidden mb-4 p-4 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-3">
+                <svg class="w-5 h-5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span id="error-message" class="text-red-300"></span>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loading-container" class="hidden text-center py-20">
+                <svg class="w-12 h-12 mx-auto text-blue-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="mt-4 text-slate-400">Fetching image information...</p>
+            </div>
+
+            <!-- Welcome State -->
+            <div id="welcome-container" class="text-center py-20">
+                <div class="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-600/20 border border-slate-700 flex items-center justify-center mb-6">
+                    <svg class="w-10 h-10 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                    </svg>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-200 mb-2">Welcome to OCI Image Explorer</h2>
+                <p class="text-slate-400 max-w-md mx-auto mb-6">
+                    Enter a container image reference above to visualize its OCI structure, including layers, manifests, configurations, and supply chain artifacts.
+                </p>
+                <div class="flex flex-wrap justify-center gap-2">
+                    <button onclick="quickInspect('alpine:latest')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">alpine:latest</button>
+                    <button onclick="quickInspect('nginx:latest')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">nginx:latest</button>
+                    <button onclick="quickInspect('python:3.12-slim')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">python:3.12-slim</button>
+                    <button onclick="quickInspect('golang:1.21')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">golang:1.21</button>
+                </div>
+            </div>
+
+            <!-- Image Data Container -->
+            <div id="image-container" class="hidden"></div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="border-t border-slate-800 py-4 mt-8">
+            <div class="max-w-7xl mx-auto px-4 text-center text-sm text-slate-500">
+                OCI Image Explorer - Visualize OCI Image Spec 1.1 structures
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        let currentView = 'details';
+        let currentData = null;
+        let selectedPlatform = 'all'; // 'all' or a specific platform digest
+        let platformDigestMap = {}; // Maps platform string (e.g., "linux/amd64") to digest
+        let collapseStates = {}; // Track collapse states across re-renders
+
+        // Graph zoom/pan state
+        let graphZoom = 1;
+        let graphPanX = 0;
+        let graphPanY = 0;
+        let isPanning = false;
+        let panStartX = 0;
+        let panStartY = 0;
+
+        // View mode toggles (false = graphical, true = JSON)
+        let configJsonView = false;
+        let annotationsJsonView = false;
+        let imageIndexJsonView = false;
+
+        function toggleConfigView() {
+            configJsonView = !configJsonView;
+            if (currentData) renderImageData(currentData);
+        }
+
+        function toggleAnnotationsView() {
+            annotationsJsonView = !annotationsJsonView;
+            if (currentData) renderImageData(currentData);
+        }
+
+        function toggleImageIndexView() {
+            imageIndexJsonView = !imageIndexJsonView;
+            if (currentData) renderImageData(currentData);
+        }
+
+        // URL query parameter handling
+        function getQueryParam(name) {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get(name);
+        }
+
+        function updateURLWithImage(imageRef) {
+            const url = new URL(window.location);
+            if (imageRef) {
+                url.searchParams.set('q', imageRef);
+            } else {
+                url.searchParams.delete('q');
+            }
+            history.pushState({ image: imageRef }, '', url);
+        }
+
+        function handlePopState(event) {
+            const imageRef = event.state?.image || getQueryParam('q');
+            if (imageRef) {
+                document.getElementById('image-input').value = imageRef;
+                inspectImage(true); // true = don't update URL (we're navigating history)
+            } else {
+                // No image in URL, show welcome screen
+                document.getElementById('image-input').value = 'alpine:latest';
+                document.getElementById('welcome-container').classList.remove('hidden');
+                document.getElementById('image-container').classList.add('hidden');
+                document.getElementById('error-container').classList.add('hidden');
+                document.getElementById('loading-container').classList.add('hidden');
+                currentData = null;
+            }
+        }
+
+        function initFromURL() {
+            const imageRef = getQueryParam('q');
+            if (imageRef) {
+                document.getElementById('image-input').value = imageRef;
+                inspectImage(true); // true = don't update URL on initial load
+            }
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', initFromURL);
+        window.addEventListener('popstate', handlePopState);
+
+        function buildPlatformDigestMap(data) {
+            platformDigestMap = {};
+            if (data.imageIndex?.manifests) {
+                data.imageIndex.manifests.forEach(m => {
+                    if (m.platform) {
+                        const platformStr = `${m.platform.os}/${m.platform.architecture}${m.platform.variant ? '/' + m.platform.variant : ''}`;
+                        // Filter out unknown/unknown platforms (attestation manifests)
+                        if (platformStr !== 'unknown/unknown') {
+                            platformDigestMap[platformStr] = m.digest;
+                        }
+                    }
+                });
+            }
+        }
+
+        function selectPlatform(platformDigest) {
+            selectedPlatform = platformDigest;
+            if (currentData) renderImageData(currentData);
+        }
+
+        function getFilteredReferrers(referrers) {
+            if (selectedPlatform === 'all') {
+                return referrers;
+            }
+            return referrers.filter(r => {
+                // Check the vnd.docker.reference.digest annotation
+                const refDigest = r.annotations?.['vnd.docker.reference.digest'];
+                if (!refDigest) {
+                    // If no reference digest, include it (it applies to all platforms)
+                    return true;
+                }
+                return refDigest === selectedPlatform;
+            });
+        }
+
+        function getSelectedPlatformConfig(data) {
+            // If no platform selected (all platforms) or single-platform image, use the default config
+            if (selectedPlatform === 'all' || !data.imageIndex?.manifests) {
+                return data.config;
+            }
+
+            // Find the platform manifest matching the selected digest
+            const platformManifest = data.imageIndex.manifests.find(m => m.digest === selectedPlatform);
+            if (platformManifest?.config) {
+                return platformManifest.config;
+            }
+
+            // Fallback to default config
+            return data.config;
+        }
+
+        function getSelectedPlatformName() {
+            if (selectedPlatform === 'all') {
+                return null;
+            }
+            // Find the platform string for the selected digest
+            for (const [platform, digest] of Object.entries(platformDigestMap)) {
+                if (digest === selectedPlatform) {
+                    return platform;
+                }
+            }
+            return null;
+        }
+
+        function setView(view) {
+            currentView = view;
+            document.getElementById('btn-details').className = view === 'details'
+                ? 'px-3 py-2 rounded-lg flex items-center gap-2 text-sm bg-blue-500/20 text-blue-300'
+                : 'px-3 py-2 rounded-lg flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200';
+            document.getElementById('btn-graph').className = view === 'graph'
+                ? 'px-3 py-2 rounded-lg flex items-center gap-2 text-sm bg-blue-500/20 text-blue-300'
+                : 'px-3 py-2 rounded-lg flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200';
+            if (currentData) renderImageData(currentData);
+        }
+
+        function quickInspect(image) {
+            document.getElementById('image-input').value = image;
+            inspectImage();
+        }
+
+        async function inspectImage(skipURLUpdate = false) {
+            const imageRef = document.getElementById('image-input').value.trim();
+            if (!imageRef) return;
+
+            // Reset state when inspecting a new image
+            selectedPlatform = 'all';
+            platformDigestMap = {};
+            collapseStates = {};
+
+            // Show loading
+            document.getElementById('welcome-container').classList.add('hidden');
+            document.getElementById('image-container').classList.add('hidden');
+            document.getElementById('error-container').classList.add('hidden');
+            document.getElementById('loading-container').classList.remove('hidden');
+
+            // Update button
+            document.getElementById('inspect-btn').disabled = true;
+            document.getElementById('inspect-icon').innerHTML = '<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>';
+            document.getElementById('inspect-icon').classList.add('animate-spin');
+            document.getElementById('inspect-text').textContent = 'Loading...';
+
+            try {
+                const response = await fetch(`/api/inspect?image=${encodeURIComponent(imageRef)}`);
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || 'Failed to inspect image');
+                }
+
+                currentData = result.data;
+                renderImageData(result.data);
+
+                document.getElementById('loading-container').classList.add('hidden');
+                document.getElementById('image-container').classList.remove('hidden');
+
+                // Update URL after successful inspection (unless navigating history)
+                if (!skipURLUpdate) {
+                    updateURLWithImage(imageRef);
+                }
+            } catch (error) {
+                document.getElementById('loading-container').classList.add('hidden');
+                document.getElementById('error-container').classList.remove('hidden');
+                document.getElementById('error-message').textContent = error.message;
+            } finally {
+                // Reset button
+                document.getElementById('inspect-btn').disabled = false;
+                document.getElementById('inspect-icon').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>';
+                document.getElementById('inspect-icon').classList.remove('animate-spin');
+                document.getElementById('inspect-text').textContent = 'Inspect';
+            }
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function truncateDigest(digest, length = 12) {
+            if (!digest) return '';
+            const parts = digest.split(':');
+            if (parts.length === 2) {
+                return `${parts[0]}:${parts[1].substring(0, length)}...`;
+            }
+            return digest.substring(0, length) + '...';
+        }
+
+        function saveCollapseStates() {
+            const container = document.getElementById('image-container');
+            container.querySelectorAll('[data-collapse]').forEach(el => {
+                const target = document.getElementById(el.dataset.collapse);
+                if (target) {
+                    collapseStates[el.dataset.collapse] = !target.classList.contains('hidden');
+                }
+            });
+        }
+
+        function restoreCollapseStates() {
+            const container = document.getElementById('image-container');
+            container.querySelectorAll('[data-collapse]').forEach(el => {
+                const targetId = el.dataset.collapse;
+                const target = document.getElementById(targetId);
+                const icon = el.querySelector('.collapse-icon');
+                if (target && collapseStates.hasOwnProperty(targetId)) {
+                    if (collapseStates[targetId]) {
+                        target.classList.remove('hidden');
+                        if (icon) icon.style.transform = 'rotate(90deg)';
+                    } else {
+                        target.classList.add('hidden');
+                        if (icon) icon.style.transform = 'rotate(0deg)';
+                    }
+                }
+            });
+        }
+
+        function renderImageData(data) {
+            const container = document.getElementById('image-container');
+
+            // Save collapse states before re-render
+            saveCollapseStates();
+
+            // Build platform digest map for filtering
+            buildPlatformDigestMap(data);
+
+            if (currentView === 'graph') {
+                container.innerHTML = renderGraphView(data);
+            } else {
+                container.innerHTML = renderDetailsView(data);
+            }
+
+            // Restore collapse states after re-render
+            restoreCollapseStates();
+
+            // Add click handlers for collapsible sections
+            container.querySelectorAll('[data-collapse]').forEach(el => {
+                el.addEventListener('click', () => {
+                    const target = document.getElementById(el.dataset.collapse);
+                    const icon = el.querySelector('.collapse-icon');
+                    if (target.classList.contains('hidden')) {
+                        target.classList.remove('hidden');
+                        icon.style.transform = 'rotate(90deg)';
+                        collapseStates[el.dataset.collapse] = true;
+                    } else {
+                        target.classList.add('hidden');
+                        icon.style.transform = 'rotate(0deg)';
+                        collapseStates[el.dataset.collapse] = false;
+                    }
+                });
+            });
+
+            // Add click handlers for expandable cards
+            container.querySelectorAll('[data-expand]').forEach(el => {
+                el.addEventListener('click', () => {
+                    const target = document.getElementById(el.dataset.expand);
+                    target.classList.toggle('hidden');
+                    el.classList.toggle('border-slate-500');
+                    el.classList.toggle('bg-slate-700/50');
+                });
+            });
+        }
+
+        function renderDetailsView(data) {
+            const totalSize = data.manifest?.layers?.reduce((sum, l) => sum + l.size, 0) || 0;
+            // Count only non-attestation platforms (filter out unknown/unknown)
+            const validPlatforms = (data.imageIndex?.manifests || []).filter(m => {
+                if (!m.platform) return false;
+                const platformStr = `${m.platform.os}/${m.platform.architecture}`;
+                return platformStr !== 'unknown/unknown';
+            });
+            const platformCount = validPlatforms.length || 1;
+            const layerCount = data.manifest?.layers?.length || 0;
+            const filteredReferrers = getFilteredReferrers(data.referrers || []);
+            const referrerCount = data.referrers?.length || 0;
+            const tagCount = data.tags?.length || 0;
+
+            // Check if this is a multi-platform image
+            const hasMultiplePlatforms = Object.keys(platformDigestMap).length > 1;
+            const hasReferrers = (data.referrers?.length || 0) > 0;
+            // Show platform filter if multiple platforms (for config display) or if there are referrers to filter
+            const showPlatformFilter = hasMultiplePlatforms;
+
+            // Get the config for the selected platform
+            const selectedConfig = getSelectedPlatformConfig(data);
+            const selectedPlatformName = getSelectedPlatformName();
+
+            return `
+                <!-- Image Summary -->
+                <div class="bg-slate-800 border border-slate-700 rounded-lg p-4 mb-6 fade-in">
+                    <div class="flex items-start justify-between flex-wrap gap-4">
+                        <div>
+                            <div class="flex items-center gap-3">
+                                <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                </svg>
+                                <h2 class="text-lg font-semibold font-mono">${data.repository}</h2>
+                            </div>
+                            <div class="flex items-center gap-2 mt-2 flex-wrap">
+                                ${(data.tags || []).slice(0, 5).map(tag => `
+                                    <span class="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs font-mono">${tag}</span>
+                                `).join('')}
+                                ${data.tags?.length > 5 ? `<span class="text-xs text-slate-500">+${data.tags.length - 5} more</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="flex items-center gap-2 text-sm text-slate-400">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"></path>
+                                </svg>
+                                <span class="font-mono">${truncateDigest(data.digest, 16)}</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-sm text-slate-500 mt-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <span>${data.created ? new Date(data.created).toLocaleString() : 'Unknown'}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Stats -->
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4 pt-4 border-t border-slate-700">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-emerald-400">${layerCount}</div>
+                            <div class="text-xs text-slate-500">Layers</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-purple-400">${platformCount}</div>
+                            <div class="text-xs text-slate-500">Platforms</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-cyan-400">${referrerCount}</div>
+                            <div class="text-xs text-slate-500">Referrers</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-amber-400">${formatBytes(totalSize)}</div>
+                            <div class="text-xs text-slate-500">Total Size</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-blue-400">${tagCount}</div>
+                            <div class="text-xs text-slate-500">Tags</div>
+                        </div>
+                    </div>
+                </div>
+
+                ${showPlatformFilter ? `
+                <!-- Platform Filter -->
+                <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4 mb-6 fade-in">
+                    <div class="flex items-center gap-4 flex-wrap">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"></path>
+                            </svg>
+                            <span class="text-sm font-semibold text-slate-300">Select Platform:</span>
+                        </div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button onclick="selectPlatform('all')"
+                                class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${selectedPlatform === 'all' ? 'bg-purple-500/30 text-purple-300 border border-purple-500/50' : 'bg-slate-700 text-slate-400 border border-slate-600 hover:text-slate-200'}">
+                                All Platforms
+                            </button>
+                            ${Object.entries(platformDigestMap).map(([platform, digest]) => `
+                                <button onclick="selectPlatform('${digest}')"
+                                    class="px-3 py-1.5 rounded-lg text-sm font-mono transition-colors ${selectedPlatform === digest ? 'bg-purple-500/30 text-purple-300 border border-purple-500/50' : 'bg-slate-700 text-slate-400 border border-slate-600 hover:text-slate-200'}">
+                                    ${platform}
+                                </button>
+                            `).join('')}
+                        </div>
+                        <div class="text-xs text-slate-500">
+                            ${hasReferrers ? `Showing ${filteredReferrers.length} of ${referrerCount} referrers` : 'Configuration updates with platform selection'}
+                        </div>
+                    </div>
+                </div>
+                ` : ''}
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Left Column -->
+                    <div>
+                        ${data.imageIndex ? renderImageIndexSection(data.imageIndex, selectedPlatform) : ''}
+                        ${data.manifest ? renderLayersSection(data.manifest.layers) : ''}
+                        ${data.manifest?.annotations ? renderAnnotationsSection(data.manifest.annotations) : ''}
+                    </div>
+
+                    <!-- Right Column -->
+                    <div>
+                        ${selectedConfig ? renderConfigSection(selectedConfig, selectedPlatformName) : ''}
+                        ${renderReferrersSection(filteredReferrers, data.referrers?.length || 0)}
+                        ${renderTagsSection(data.tags || [])}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderImageIndexSection(imageIndex, selectedPlatformFilter = 'all') {
+            // Filter out unknown/unknown platforms (attestation manifests, not actual platforms)
+            let validManifests = imageIndex.manifests.filter(m => {
+                if (!m.platform) return false;
+                const platformStr = `${m.platform.os}/${m.platform.architecture}`;
+                return platformStr !== 'unknown/unknown';
+            });
+            
+            // Apply platform filter if a specific platform is selected
+            if (selectedPlatformFilter !== 'all') {
+                validManifests = validManifests.filter(m => m.digest === selectedPlatformFilter);
+            }
+            
+            return `
+                <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
+                    <div class="flex items-center justify-between bg-slate-800">
+                        <button data-collapse="index-content" class="flex-1 px-4 py-3 flex items-center justify-between hover:bg-slate-700 transition-colors">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
+                                </svg>
+                                <span class="font-semibold text-slate-100">Image Index</span>
+                                <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">${validManifests.length} platform${validManifests.length !== 1 ? 's' : ''}</span>
+                                ${selectedPlatformFilter !== 'all' ? '<span class="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded-full">filtered</span>' : ''}
+                            </div>
+                            <svg class="w-5 h-5 text-slate-400 collapse-icon transition-transform" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                        <button onclick="toggleImageIndexView(); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${imageIndexJsonView ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="index-content" class="p-4 space-y-2">
+                        ${imageIndexJsonView ? `
+                            <pre class="bg-slate-900 p-4 rounded-lg overflow-auto max-h-96 scrollbar-thin text-xs font-mono text-slate-300">${JSON.stringify(imageIndex, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        ` : validManifests.length === 0 ? `
+                            <div class="text-center py-6 text-slate-500">
+                                <p>No platforms match the selected filter</p>
+                            </div>
+                        ` : validManifests.map((m, i) => `
+                            <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer" data-expand="index-detail-${i}">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">${i}</div>
+                                        <div>
+                                            <div class="text-sm font-mono text-slate-300">${truncateDigest(m.digest, 16)}</div>
+                                            <div class="text-xs text-slate-500">${m.platform ? `${m.platform.os}/${m.platform.architecture}${m.platform.variant ? '/' + m.platform.variant : ''}` : 'unknown'}</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-sm font-medium text-slate-300">${formatBytes(m.size)}</div>
+                                    </div>
+                                </div>
+                                <div id="index-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 text-sm space-y-2">
+                                    <div class="flex items-start gap-2">
+                                        <span class="text-slate-500 min-w-24">Media Type:</span>
+                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${m.mediaType}</code>
+                                    </div>
+                                    <div class="flex items-start gap-2">
+                                        <span class="text-slate-500 min-w-24">Digest:</span>
+                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${m.digest}</code>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderLayersSection(layers) {
+            return `
+                <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
+                    <button data-collapse="layers-content" class="w-full px-4 py-3 flex items-center justify-between bg-slate-800 hover:bg-slate-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                            <span class="font-semibold text-slate-100">Layers</span>
+                            <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">${layers.length} layers</span>
+                        </div>
+                        <svg class="w-5 h-5 text-slate-400 collapse-icon transition-transform" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                    <div id="layers-content" class="p-4 space-y-2">
+                        ${layers.map((l, i) => `
+                            <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer" data-expand="layer-detail-${i}">
+                                <div class="flex items-start justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">${i}</div>
+                                        <div>
+                                            <div class="text-sm font-mono text-slate-300">${truncateDigest(l.digest, 16)}</div>
+                                            <div class="text-xs text-slate-500">${l.mediaType?.split('.').pop().replace('+', ' ')}</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-right">
+                                        <div class="text-sm font-medium text-slate-300">${formatBytes(l.size)}</div>
+                                    </div>
+                                </div>
+                                <div id="layer-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 text-sm space-y-2">
+                                    <div class="flex items-start gap-2">
+                                        <span class="text-slate-500 min-w-24">Media Type:</span>
+                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${l.mediaType}</code>
+                                    </div>
+                                    <div class="flex items-start gap-2">
+                                        <span class="text-slate-500 min-w-24">Digest:</span>
+                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${l.digest}</code>
+                                    </div>
+                                    ${l.annotations ? `
+                                        <div class="mt-2">
+                                            <span class="text-slate-500 text-xs">Annotations:</span>
+                                            <div class="mt-1 space-y-1">
+                                                ${Object.entries(l.annotations).map(([k, v]) => `
+                                                    <div class="flex items-start gap-2 pl-2">
+                                                        <span class="text-xs text-slate-500">${k.split('.').pop()}:</span>
+                                                        <span class="text-xs text-slate-400">${v}</span>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAnnotationsSection(annotations) {
+            const entries = Object.entries(annotations || {});
+            if (entries.length === 0) return '';
+
+            return `
+                <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
+                    <div class="flex items-center justify-between bg-slate-800">
+                        <button data-collapse="annotations-content" class="flex-1 px-4 py-3 flex items-center justify-between hover:bg-slate-700 transition-colors">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                </svg>
+                                <span class="font-semibold text-slate-100">Annotations</span>
+                                <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">${entries.length}</span>
+                            </div>
+                            <svg class="w-5 h-5 text-slate-400 collapse-icon transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                        <button onclick="toggleAnnotationsView(); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${annotationsJsonView ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="annotations-content" class="p-4 space-y-2 hidden">
+                        ${annotationsJsonView ? `
+                            <pre class="bg-slate-900 p-4 rounded-lg overflow-auto max-h-64 scrollbar-thin text-xs font-mono text-slate-300">${JSON.stringify(annotations, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        ` : `
+                        ${entries.map(([k, v]) => `
+                            <div class="flex items-start gap-2 p-2 bg-slate-800/50 rounded">
+                                <span class="text-xs text-slate-500 min-w-32 break-all">${k.split('.').pop()}:</span>
+                                <span class="text-sm text-slate-300 break-all">${v}</span>
+                            </div>
+                        `).join('')}
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderConfigSection(config, platformName = null) {
+            return `
+                <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
+                    <div class="flex items-center justify-between bg-slate-800">
+                        <button data-collapse="config-content" class="flex-1 px-4 py-3 flex items-center justify-between hover:bg-slate-700 transition-colors">
+                            <div class="flex items-center gap-3">
+                                <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"></path>
+                                </svg>
+                                <span class="font-semibold text-slate-100">Configuration</span>
+                                ${platformName ? `<span class="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded-full font-mono">${platformName}</span>` : ''}
+                            </div>
+                            <svg class="w-5 h-5 text-slate-400 collapse-icon transition-transform" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                            </svg>
+                        </button>
+                        <button onclick="toggleConfigView(); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${configJsonView ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="config-content" class="p-4">
+                        ${configJsonView ? `
+                            <pre class="bg-slate-900 p-4 rounded-lg overflow-auto max-h-96 scrollbar-thin text-xs font-mono text-slate-300">${JSON.stringify(config, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+                        ` : `
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                            <div class="bg-slate-800/50 rounded-lg p-3">
+                                <div class="text-xs text-slate-500">Architecture</div>
+                                <div class="text-sm text-slate-200 font-mono mt-1">${config.architecture || 'N/A'}</div>
+                            </div>
+                            <div class="bg-slate-800/50 rounded-lg p-3">
+                                <div class="text-xs text-slate-500">OS</div>
+                                <div class="text-sm text-slate-200 font-mono mt-1">${config.os || 'N/A'}</div>
+                            </div>
+                            <div class="bg-slate-800/50 rounded-lg p-3">
+                                <div class="text-xs text-slate-500">Created</div>
+                                <div class="text-sm text-slate-200 mt-1">${config.created ? new Date(config.created).toLocaleDateString() : 'N/A'}</div>
+                            </div>
+                            <div class="bg-slate-800/50 rounded-lg p-3">
+                                <div class="text-xs text-slate-500">Author</div>
+                                <div class="text-sm text-slate-200 mt-1 truncate">${config.author || 'N/A'}</div>
+                            </div>
+                        </div>
+
+                        ${config.config ? `
+                            <div class="bg-slate-800/50 rounded-lg p-4 mb-4">
+                                <div class="text-sm font-semibold text-slate-300 mb-3">Runtime Configuration</div>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                                    ${config.config.User ? `<div><span class="text-slate-500">User:</span><span class="text-slate-300 ml-2 font-mono">${config.config.User}</span></div>` : ''}
+                                    ${config.config.WorkingDir ? `<div><span class="text-slate-500">Working Dir:</span><span class="text-slate-300 ml-2 font-mono">${config.config.WorkingDir}</span></div>` : ''}
+                                    ${config.config.Entrypoint?.length ? `
+                                        <div class="col-span-2">
+                                            <span class="text-slate-500">Entrypoint:</span>
+                                            <code class="text-xs bg-slate-900 px-2 py-1 rounded text-emerald-300 ml-2">${config.config.Entrypoint.join(' ')}</code>
+                                        </div>
+                                    ` : ''}
+                                    ${config.config.Cmd?.length ? `
+                                        <div class="col-span-2">
+                                            <span class="text-slate-500">Cmd:</span>
+                                            <code class="text-xs bg-slate-900 px-2 py-1 rounded text-blue-300 ml-2">${config.config.Cmd.join(' ')}</code>
+                                        </div>
+                                    ` : ''}
+                                    ${config.config.ExposedPorts && Object.keys(config.config.ExposedPorts).length ? `
+                                        <div class="col-span-2">
+                                            <span class="text-slate-500">Exposed Ports:</span>
+                                            <div class="flex gap-2 mt-1 flex-wrap">
+                                                ${Object.keys(config.config.ExposedPorts).map(port => `
+                                                    <span class="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded">${port}</span>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    ${config.config.Env?.length ? `
+                                        <div class="col-span-2">
+                                            <span class="text-slate-500">Environment:</span>
+                                            <div class="mt-1 space-y-1 max-h-32 overflow-y-auto scrollbar-thin">
+                                                ${config.config.Env.map(env => `
+                                                    <code class="block text-xs bg-slate-900 px-2 py-1 rounded text-slate-400">${env}</code>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        ${config.history?.length ? `
+                            <div class="bg-slate-800/50 rounded-lg p-4">
+                                <div class="text-sm font-semibold text-slate-300 mb-3">Build History</div>
+                                <div class="space-y-2 max-h-64 overflow-y-auto scrollbar-thin">
+                                    ${config.history.map((entry, i) => `
+                                        <div class="flex items-start gap-3 text-sm">
+                                            <div class="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-400 flex-shrink-0">${i + 1}</div>
+                                            <div class="flex-1 min-w-0">
+                                                <code class="text-xs text-slate-300 break-all">${entry.created_by || 'Unknown'}</code>
+                                                <div class="text-xs text-slate-500 mt-0.5">
+                                                    ${entry.created ? new Date(entry.created).toLocaleString() : ''}
+                                                    ${entry.empty_layer ? '<span class="ml-2 text-slate-600">(empty layer)</span>' : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function downloadSBOM(repository, digest, event) {
+            event.stopPropagation();
+            const btn = event.currentTarget;
+            const originalContent = btn.innerHTML;
+
+            btn.innerHTML = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/api/sbom?repository=${encodeURIComponent(repository)}&digest=${encodeURIComponent(digest)}`);
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to download SBOM');
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `sbom-${digest.substring(7, 19)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                alert('Error downloading SBOM: ' + error.message);
+            } finally {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }
+        }
+
+        function renderReferrersSection(referrers, totalCount = referrers.length) {
+            const typeIcons = {
+                signature: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>',
+                sbom: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>',
+                attestation: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>',
+                artifact: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>'
+            };
+
+            const typeColors = {
+                signature: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+                sbom: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
+                attestation: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+                artifact: 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+            };
+
+            const isFiltered = referrers.length !== totalCount;
+            return `
+                <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
+                    <button data-collapse="referrers-content" class="w-full px-4 py-3 flex items-center justify-between bg-slate-800 hover:bg-slate-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                            </svg>
+                            <span class="font-semibold text-slate-100">Referrers</span>
+                            <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">${isFiltered ? `${referrers.length} of ${totalCount}` : referrers.length} artifacts</span>
+                            ${isFiltered ? '<span class="px-2 py-0.5 text-xs bg-purple-500/20 text-purple-300 rounded-full">filtered</span>' : ''}
+                        </div>
+                        <svg class="w-5 h-5 text-slate-400 collapse-icon transition-transform" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                    <div id="referrers-content" class="p-4">
+                        ${referrers.length === 0 ? `
+                            <div class="text-center py-6 text-slate-500">
+                                <svg class="w-10 h-10 mx-auto mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                </svg>
+                                <p>No referrers found</p>
+                                <p class="text-xs mt-1">No signatures, SBOMs, or attestations attached to this image</p>
+                            </div>
+                        ` : `
+                            <div class="space-y-3">
+                                ${referrers.map((r, i) => `
+                                    <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer" data-expand="referrer-detail-${i}">
+                                        <div class="flex items-start justify-between">
+                                            <div class="flex items-center gap-3">
+                                                <div class="w-10 h-10 rounded-md flex items-center justify-center border ${typeColors[r.type] || typeColors.artifact}">
+                                                    ${typeIcons[r.type] || typeIcons.artifact}
+                                                </div>
+                                                <div>
+                                                    <div class="text-sm font-semibold text-slate-200 capitalize">${r.type}</div>
+                                                    <div class="text-xs text-slate-500 font-mono">${truncateDigest(r.digest, 12)}</div>
+                                                </div>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                ${r.type === 'sbom' ? `
+                                                    <button onclick="downloadSBOM('${currentData?.repository}', '${r.digest}', event)"
+                                                        class="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                                        </svg>
+                                                        Download
+                                                    </button>
+                                                ` : ''}
+                                                <div class="text-sm text-slate-400">${formatBytes(r.size)}</div>
+                                            </div>
+                                        </div>
+                                        <div id="referrer-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 space-y-3">
+                                            <div class="grid grid-cols-2 gap-3 text-sm">
+                                                <div>
+                                                    <span class="text-slate-500 text-xs">Artifact Type</span>
+                                                    <div class="text-xs text-slate-300 mt-1 break-all">${r.artifactType || 'N/A'}</div>
+                                                </div>
+                                                <div>
+                                                    <span class="text-slate-500 text-xs">Media Type</span>
+                                                    <div class="text-xs text-slate-300 mt-1 break-all">${r.mediaType}</div>
+                                                </div>
+                                            </div>
+                                            ${r.annotations && Object.keys(r.annotations).length ? `
+                                                <div>
+                                                    <span class="text-slate-500 text-xs">Annotations</span>
+                                                    <div class="mt-1 space-y-1">
+                                                        ${Object.entries(r.annotations).map(([k, v]) => `
+                                                            <div class="text-xs">
+                                                                <span class="text-slate-500">${k.split(/[.#]/).pop()}:</span>
+                                                                <span class="text-slate-400 ml-1">${v}</span>
+                                                            </div>
+                                                        `).join('')}
+                                                    </div>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderTagsSection(tags) {
+            return `
+                <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
+                    <button data-collapse="tags-content" class="w-full px-4 py-3 flex items-center justify-between bg-slate-800 hover:bg-slate-700 transition-colors">
+                        <div class="flex items-center gap-3">
+                            <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
+                            </svg>
+                            <span class="font-semibold text-slate-100">Tags</span>
+                            <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">${tags.length} tags</span>
+                        </div>
+                        <svg class="w-5 h-5 text-slate-400 collapse-icon transition-transform" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                    <div id="tags-content" class="p-4">
+                        <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto scrollbar-thin">
+                            ${tags.map(tag => `
+                                <div class="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg hover:border-blue-500 cursor-pointer transition-colors" onclick="quickInspect('${currentData?.repository}:${tag}')">
+                                    <span class="font-mono text-sm text-slate-300">${tag}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function zoomGraph(delta) {
+            const newZoom = Math.max(0.25, Math.min(3, graphZoom + delta));
+            graphZoom = newZoom;
+            updateGraphTransform();
+        }
+
+        function resetGraphView() {
+            graphZoom = 1;
+            graphPanX = 0;
+            graphPanY = 0;
+            updateGraphTransform();
+        }
+
+        function updateGraphTransform() {
+            const graphContent = document.getElementById('graph-content');
+            if (graphContent) {
+                graphContent.setAttribute('transform', `translate(${graphPanX}, ${graphPanY}) scale(${graphZoom})`);
+            }
+            const zoomLabel = document.getElementById('zoom-level');
+            if (zoomLabel) {
+                zoomLabel.textContent = `${Math.round(graphZoom * 100)}%`;
+            }
+        }
+
+        function initGraphPanZoom() {
+            const container = document.getElementById('graph-container');
+            const svg = document.getElementById('graph-svg');
+            if (!container || !svg) return;
+
+            // Mouse wheel zoom
+            container.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                zoomGraph(delta);
+            }, { passive: false });
+
+            // Pan with mouse drag
+            svg.addEventListener('mousedown', (e) => {
+                if (e.button === 0) { // Left mouse button
+                    isPanning = true;
+                    panStartX = e.clientX - graphPanX;
+                    panStartY = e.clientY - graphPanY;
+                    svg.style.cursor = 'grabbing';
+                }
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (isPanning) {
+                    graphPanX = e.clientX - panStartX;
+                    graphPanY = e.clientY - panStartY;
+                    updateGraphTransform();
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isPanning) {
+                    isPanning = false;
+                    const svg = document.getElementById('graph-svg');
+                    if (svg) svg.style.cursor = 'grab';
+                }
+            });
+
+            // Touch support for mobile
+            let lastTouchDist = 0;
+            svg.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 1) {
+                    isPanning = true;
+                    panStartX = e.touches[0].clientX - graphPanX;
+                    panStartY = e.touches[0].clientY - graphPanY;
+                } else if (e.touches.length === 2) {
+                    lastTouchDist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                }
+            }, { passive: true });
+
+            svg.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 1 && isPanning) {
+                    graphPanX = e.touches[0].clientX - panStartX;
+                    graphPanY = e.touches[0].clientY - panStartY;
+                    updateGraphTransform();
+                } else if (e.touches.length === 2) {
+                    const dist = Math.hypot(
+                        e.touches[0].clientX - e.touches[1].clientX,
+                        e.touches[0].clientY - e.touches[1].clientY
+                    );
+                    const delta = (dist - lastTouchDist) * 0.005;
+                    zoomGraph(delta);
+                    lastTouchDist = dist;
+                }
+            }, { passive: true });
+
+            svg.addEventListener('touchend', () => {
+                isPanning = false;
+            });
+        }
+
+        function renderGraphView(data) {
+            // Filter out unknown/unknown platforms (attestation manifests, not actual platforms)
+            const allPlatforms = data.imageIndex?.manifests || [];
+            const platforms = allPlatforms.filter(m => {
+                if (!m.platform) return false;
+                return !(m.platform.os === 'unknown' && m.platform.architecture === 'unknown');
+            });
+            const layers = data.manifest?.layers || [];
+            const referrers = data.referrers || [];
+
+            // Reset pan/zoom when rendering new graph
+            graphZoom = 1;
+            graphPanX = 0;
+            graphPanY = 0;
+
+            // Schedule initialization after DOM update
+            setTimeout(initGraphPanZoom, 0);
+
+            // Group referrers by their target platform digest using vnd.docker.reference.digest annotation
+            const referrersByPlatform = {};
+            const globalReferrers = []; // Referrers that apply to all platforms (no reference digest)
+
+            referrers.forEach(r => {
+                const refDigest = r.annotations?.['vnd.docker.reference.digest'];
+                if (refDigest) {
+                    if (!referrersByPlatform[refDigest]) {
+                        referrersByPlatform[refDigest] = [];
+                    }
+                    referrersByPlatform[refDigest].push(r);
+                } else {
+                    globalReferrers.push(r);
+                }
+            });
+
+            // Calculate layout dimensions
+            const platformCount = Math.max(platforms.length, 1);
+            const platformWidth = 150;
+            const platformSpacing = 280; // Increased spacing to accommodate referrers below each platform
+            const totalWidth = platformCount * platformSpacing;
+            const startX = Math.max(50, (900 - totalWidth + platformSpacing - platformWidth) / 2);
+
+            // Calculate maximum referrers per platform for height calculation
+            let maxReferrersPerPlatform = 0;
+            platforms.forEach(p => {
+                const count = (referrersByPlatform[p.digest] || []).length;
+                if (count > maxReferrersPerPlatform) maxReferrersPerPlatform = count;
+            });
+
+            // Calculate SVG height based on content
+            const referrerRowHeight = 48;
+            const configNodeHeight = 70; // Height for config node below referrers
+            const baseHeight = 400;
+            const extraHeight = Math.max(0, (maxReferrersPerPlatform) * referrerRowHeight) + configNodeHeight;
+            const globalReferrerHeight = globalReferrers.length > 0 ? Math.min(globalReferrers.length, 4) * 50 + 40 : 0;
+            const svgHeight = baseHeight + extraHeight + 50;
+            const svgWidth = Math.max(900, totalWidth + 200 + (globalReferrers.length > 0 ? 150 : 0));
+
+            // Helper to get referrer color scheme
+            const getReferrerColor = (type) => {
+                const colors = {
+                    signature: { fill: '#f59e0b', text: 'Signature' },
+                    sbom: { fill: '#06b6d4', text: 'SBOM' },
+                    attestation: { fill: '#8b5cf6', text: 'Attestation' },
+                    artifact: { fill: '#64748b', text: 'Artifact' }
+                };
+                return colors[type] || colors.artifact;
+            };
+
+            // Generate platform referrer boxes and connection lines
+            let platformReferrersHtml = '';
+            let platformReferrerLinesHtml = '';
+
+            platforms.forEach((p, i) => {
+                const platformX = startX + i * platformSpacing;
+                const platformCenterX = platformX + platformWidth / 2;
+                const platformReferrers = referrersByPlatform[p.digest] || [];
+
+                if (platformReferrers.length > 0) {
+                    // Draw referrers below the platform
+                    platformReferrers.forEach((r, ri) => {
+                        const refX = platformX + 15; // Center below platform
+                        const refY = 205 + ri * referrerRowHeight;
+                        const color = getReferrerColor(r.type);
+                        const clickHandler = r.type === 'sbom' ? `onclick="downloadSBOM('${data.repository}', '${r.digest}', event)" style="cursor: pointer"` : '';
+
+                        // Connection line from platform to referrer
+                        platformReferrerLinesHtml += `
+                            <line x1="${platformCenterX}" y1="190" x2="${refX + 60}" y2="${refY}"
+                                stroke="${color.fill}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.7"/>
+                        `;
+
+                        // Referrer box
+                        platformReferrersHtml += `
+                            <g ${clickHandler} class="${r.type === 'sbom' ? 'hover:opacity-80' : ''}">
+                                <rect x="${refX}" y="${refY}" width="120" height="40" rx="6"
+                                    fill="${color.fill}" fill-opacity="0.15" stroke="${color.fill}" stroke-width="1.5"/>
+                                <text x="${refX + 60}" y="${refY + 15}" text-anchor="middle" fill="${color.fill}"
+                                    font-size="10" font-weight="bold">${color.text}</text>
+                                <text x="${refX + 60}" y="${refY + 30}" text-anchor="middle" fill="#94a3b8"
+                                    font-size="8" font-family="monospace">${truncateDigest(r.digest, 10)}</text>
+                            </g>
+                        `;
+                    });
+                }
+            });
+
+            // Generate global referrers (connected to image index - they apply to all platforms)
+            let globalReferrersHtml = '';
+            let globalReferrerLinesHtml = '';
+            const globalRefStartY = 90;
+            const globalRefX = Math.min(svgWidth - 170, startX + platformCount * platformSpacing + 30);
+
+            if (globalReferrers.length > 0) {
+                // Label for global referrers
+                globalReferrersHtml += `
+                    <text x="${globalRefX + 60}" y="${globalRefStartY - 15}" text-anchor="middle"
+                        fill="#22d3ee" font-size="10" font-weight="bold">Global (all platforms)</text>
+                `;
+
+                globalReferrers.slice(0, 6).forEach((r, i) => {
+                    const refY = globalRefStartY + i * 48;
+                    const color = getReferrerColor(r.type);
+                    const clickHandler = r.type === 'sbom' ? `onclick="downloadSBOM('${data.repository}', '${r.digest}', event)" style="cursor: pointer"` : '';
+
+                    // Connection line from image index to global referrer
+                    globalReferrerLinesHtml += `
+                        <line x1="525" y1="50" x2="${globalRefX}" y2="${refY + 20}"
+                            stroke="${color.fill}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.7"/>
+                    `;
+
+                    // Referrer box
+                    globalReferrersHtml += `
+                        <g ${clickHandler} class="${r.type === 'sbom' ? 'hover:opacity-80' : ''}">
+                            <rect x="${globalRefX}" y="${refY}" width="120" height="40" rx="6"
+                                fill="${color.fill}" fill-opacity="0.15" stroke="${color.fill}" stroke-width="1.5"/>
+                            <text x="${globalRefX + 60}" y="${refY + 15}" text-anchor="middle" fill="${color.fill}"
+                                font-size="10" font-weight="bold">${color.text}</text>
+                            <text x="${globalRefX + 60}" y="${refY + 30}" text-anchor="middle" fill="#94a3b8"
+                                font-size="8" font-family="monospace">${truncateDigest(r.digest, 10)}</text>
+                        </g>
+                    `;
+                });
+
+                if (globalReferrers.length > 6) {
+                    globalReferrersHtml += `
+                        <text x="${globalRefX + 60}" y="${globalRefStartY + 6 * 48 + 15}" text-anchor="middle"
+                            fill="#94a3b8" font-size="9">+${globalReferrers.length - 6} more</text>
+                    `;
+                }
+            }
+
+            // Calculate positions for config/layers section (below first platform)
+            const firstPlatformX = platforms.length > 0 ? startX : 375;
+            const configLayersY = Math.max(205 + maxReferrersPerPlatform * referrerRowHeight + 20, 260);
+
+            return `
+                <div class="bg-slate-800 rounded-lg overflow-hidden fade-in">
+                    <!-- Zoom Controls -->
+                    <div class="flex items-center justify-between px-4 py-2 bg-slate-700/50 border-b border-slate-600">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"></path>
+                            </svg>
+                            <span class="text-xs text-slate-400">Scroll to zoom, drag to pan</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="zoomGraph(-0.25)" class="p-1.5 rounded bg-slate-600 hover:bg-slate-500 text-slate-300 transition-colors" title="Zoom Out">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4"></path>
+                                </svg>
+                            </button>
+                            <span id="zoom-level" class="text-xs text-slate-300 font-mono w-12 text-center">100%</span>
+                            <button onclick="zoomGraph(0.25)" class="p-1.5 rounded bg-slate-600 hover:bg-slate-500 text-slate-300 transition-colors" title="Zoom In">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                                </svg>
+                            </button>
+                            <button onclick="resetGraphView()" class="p-1.5 rounded bg-slate-600 hover:bg-slate-500 text-slate-300 transition-colors ml-2" title="Reset View">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Graph Container -->
+                    <div id="graph-container" class="p-4 overflow-hidden" style="height: ${Math.max(500, svgHeight - 50)}px;">
+                        <svg id="graph-svg" viewBox="0 0 ${svgWidth} ${svgHeight}" class="w-full h-full" style="cursor: grab;">
+                            <g id="graph-content">
+                        <!-- Image Index -->
+                        <rect x="375" y="20" width="150" height="60" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
+                        <rect x="375" y="20" width="150" height="22" rx="8" fill="#3b82f6"/>
+                        <text x="450" y="36" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Image Index</text>
+                        <text x="450" y="58" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">${truncateDigest(data.digest, 8)}</text>
+
+                        <!-- Global referrer connection lines (connect to image index) -->
+                        ${globalReferrerLinesHtml}
+
+                        <!-- Global referrers (apply to all platforms) -->
+                        ${globalReferrersHtml}
+
+                        <!-- Lines from Index to Platform Manifests -->
+                        ${platforms.length > 0 ? platforms.map((p, i) => {
+                            const x = startX + i * platformSpacing;
+                            return `<line x1="450" y1="80" x2="${x + platformWidth / 2}" y2="130" stroke="#475569" stroke-width="2"/>`;
+                        }).join('') : `<line x1="450" y1="80" x2="450" y2="130" stroke="#475569" stroke-width="2"/>`}
+
+                        <!-- Platform Manifests -->
+                        ${platforms.length > 0 ? platforms.map((p, i) => {
+                            const x = startX + i * platformSpacing;
+                            const platformReferrers = referrersByPlatform[p.digest] || [];
+                            const refCount = platformReferrers.length;
+                            return `
+                                <rect x="${x}" y="130" width="${platformWidth}" height="60" rx="8" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/>
+                                <rect x="${x}" y="130" width="${platformWidth}" height="22" rx="8" fill="#8b5cf6"/>
+                                <text x="${x + platformWidth / 2}" y="146" text-anchor="middle" fill="white" font-size="11" font-weight="bold">${p.platform?.os || 'unknown'}/${p.platform?.architecture || 'unknown'}${p.platform?.variant ? '/' + p.platform.variant : ''}</text>
+                                <text x="${x + platformWidth / 2}" y="168" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">${truncateDigest(p.digest, 8)}</text>
+                                ${refCount > 0 ? `<text x="${x + platformWidth / 2}" y="182" text-anchor="middle" fill="#06b6d4" font-size="8">${refCount} referrer${refCount > 1 ? 's' : ''}</text>` : ''}
+                            `;
+                        }).join('') : `
+                            <rect x="375" y="130" width="${platformWidth}" height="60" rx="8" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/>
+                            <rect x="375" y="130" width="${platformWidth}" height="22" rx="8" fill="#8b5cf6"/>
+                            <text x="450" y="146" text-anchor="middle" fill="white" font-size="11" font-weight="bold">${data.architecture || 'unknown'}/${data.os || 'unknown'}</text>
+                            <text x="450" y="168" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">${truncateDigest(data.digest, 8)}</text>
+                        `}
+
+                        <!-- Platform referrer connection lines -->
+                        ${platformReferrerLinesHtml}
+
+                        <!-- Platform-specific referrers (SBOMs, attestations linked to each platform) -->
+                        ${platformReferrersHtml}
+
+                        <!-- Config and Layers for each platform -->
+                        ${platforms.length > 0 ? platforms.map((p, i) => {
+                            const platformX = startX + i * platformSpacing;
+                            const platformCenterX = platformX + platformWidth / 2;
+                            const platformReferrers = referrersByPlatform[p.digest] || [];
+                            const refHeight = platformReferrers.length * referrerRowHeight;
+                            const configY = Math.max(205 + refHeight + 20, configLayersY);
+                            const platformConfig = p.config || data.config;
+                            const platformLayers = platformConfig?.rootfs?.diff_ids?.length || layers.length;
+                            return `
+                                <!-- Lines to Config for ${p.platform?.architecture || 'unknown'} -->
+                                <line x1="${platformCenterX}" y1="190" x2="${platformCenterX}" y2="${configY}" stroke="#475569" stroke-width="1.5" stroke-dasharray="3,2"/>
+
+                                <!-- Config node for ${p.platform?.architecture || 'unknown'} -->
+                                <rect x="${platformX - 5}" y="${configY}" width="160" height="50" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
+                                <rect x="${platformX - 5}" y="${configY}" width="160" height="18" rx="6" fill="#10b981"/>
+                                <text x="${platformCenterX}" y="${configY + 13}" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Config</text>
+                                <text x="${platformCenterX}" y="${configY + 32}" text-anchor="middle" fill="#94a3b8" font-size="8">${platformConfig?.architecture || p.platform?.architecture || 'unknown'}/${platformConfig?.os || p.platform?.os || 'unknown'}</text>
+                                <text x="${platformCenterX}" y="${configY + 44}" text-anchor="middle" fill="#f59e0b" font-size="8">${platformLayers} layers</text>
+                            `;
+                        }).join('') : `
+                            <!-- Single platform config -->
+                            <line x1="${firstPlatformX + platformWidth / 2}" y1="190" x2="${firstPlatformX + platformWidth / 2}" y2="${configLayersY}" stroke="#475569" stroke-width="2"/>
+                            <line x1="${firstPlatformX + platformWidth / 2}" y1="${configLayersY}" x2="${firstPlatformX - 20}" y2="${configLayersY + 50}" stroke="#475569" stroke-width="2"/>
+                            <line x1="${firstPlatformX + platformWidth / 2}" y1="${configLayersY}" x2="${firstPlatformX + platformWidth + 40}" y2="${configLayersY + 50}" stroke="#475569" stroke-width="2"/>
+                            <rect x="${firstPlatformX - 90}" y="${configLayersY + 50}" width="140" height="60" rx="8" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
+                            <rect x="${firstPlatformX - 90}" y="${configLayersY + 50}" width="140" height="22" rx="8" fill="#10b981"/>
+                            <text x="${firstPlatformX - 20}" y="${configLayersY + 66}" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Config</text>
+                            <text x="${firstPlatformX - 20}" y="${configLayersY + 90}" text-anchor="middle" fill="#94a3b8" font-size="9">${data.config?.architecture || 'unknown'}/${data.config?.os || 'unknown'}</text>
+                            <text x="${firstPlatformX + platformWidth + 40}" y="${configLayersY + 40}" fill="#94a3b8" font-size="11" font-weight="bold">Layers (${layers.length})</text>
+                            ${layers.slice(0, 4).map((l, i) => `
+                                <rect x="${firstPlatformX + platformWidth - 30}" y="${configLayersY + 55 + i * 30}" width="140" height="26" rx="4" fill="#f59e0b" fill-opacity="${0.2 + i * 0.2}" stroke="#f59e0b"/>
+                                <text x="${firstPlatformX + platformWidth + 40}" y="${configLayersY + 72 + i * 30}" text-anchor="middle" fill="#fcd34d" font-size="10">Layer ${i}${i === 0 ? ' (base)' : i === layers.length - 1 ? ' (top)' : ''}</text>
+                            `).join('')}
+                            ${layers.length > 4 ? `<text x="${firstPlatformX + platformWidth + 40}" y="${configLayersY + 55 + 4 * 30 + 15}" text-anchor="middle" fill="#94a3b8" font-size="10">+${layers.length - 4} more layers</text>` : ''}
+                        `}
+
+                        <!-- Legend -->
+                        <g transform="translate(30, ${svgHeight - 50})">
+                            <text x="0" y="0" fill="#94a3b8" font-size="11" font-weight="bold">Legend:</text>
+                            <rect x="0" y="10" width="16" height="16" rx="2" fill="#3b82f6"/>
+                            <text x="22" y="22" fill="#94a3b8" font-size="10">Index</text>
+                            <rect x="70" y="10" width="16" height="16" rx="2" fill="#8b5cf6"/>
+                            <text x="92" y="22" fill="#94a3b8" font-size="10">Manifest</text>
+                            <rect x="160" y="10" width="16" height="16" rx="2" fill="#10b981"/>
+                            <text x="182" y="22" fill="#94a3b8" font-size="10">Config</text>
+                            <rect x="230" y="10" width="16" height="16" rx="2" fill="#f59e0b"/>
+                            <text x="252" y="22" fill="#94a3b8" font-size="10">Layers</text>
+                            <rect x="300" y="10" width="16" height="16" rx="2" fill="#06b6d4"/>
+                            <text x="322" y="22" fill="#94a3b8" font-size="10">SBOM</text>
+                            <rect x="370" y="10" width="16" height="16" rx="2" fill="#8b5cf6" fill-opacity="0.5"/>
+                            <text x="392" y="22" fill="#94a3b8" font-size="10">Attestation</text>
+                        </g>
+                            </g>
+                        </svg>
+                    </div>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "annotations": {
+    "com.docker.official-images.bashbrew.arch": "riscv64",
+    "org.opencontainers.image.base.name": "scratch",
+    "org.opencontainers.image.created": "2025-12-18T02:39:39Z",
+    "org.opencontainers.image.revision": "13b62f5f47ffa526f9c372e0bd73b33ef2a5f865",
+    "org.opencontainers.image.source": "https://github.com/alpinelinux/docker-alpine.git#13b62f5f47ffa526f9c372e0bd73b33ef2a5f865:riscv64",
+    "org.opencontainers.image.url": "https://hub.docker.com/_/alpine",
+    "org.opencontainers.image.version": "3.23.2"
+  },
+  "config": {
+    "digest": "sha256:376c9dee4e850c3bbcb6d84dd2078a91b98bfbbe5143ed7f2434b14f63aaba47",
+    "mediaType": "application/vnd.oci.image.config.v1+json",
+    "size": 614
+  },
+  "layers": [
+    {
+      "digest": "sha256:b4b94acc94b4406ae94f444e29a6c06ae16918e74a98367370cf7529ea8d988c",
+      "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+      "size": 3583938
+    }
+  ],
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "schemaVersion": 2
+}

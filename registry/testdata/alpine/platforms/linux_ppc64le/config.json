@@ -1,0 +1,33 @@
+{
+  "architecture": "ppc64le",
+  "created": "2025-12-18T00:11:34.053752641Z",
+  "history": [
+    {
+      "created": "2025-12-18T00:11:34.053752641Z",
+      "created_by": "ADD alpine-minirootfs-3.23.2-ppc64le.tar.gz / # buildkit",
+      "comment": "buildkit.dockerfile.v0"
+    },
+    {
+      "created": "2025-12-18T00:11:34.053752641Z",
+      "created_by": "CMD [\"/bin/sh\"]",
+      "comment": "buildkit.dockerfile.v0",
+      "empty_layer": true
+    }
+  ],
+  "os": "linux",
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:80134cffd571a3274bd924efa873a6cc2af2ec4a6809fdf76b2acc5d1fd045bf"
+    ]
+  },
+  "config": {
+    "Cmd": [
+      "/bin/sh"
+    ],
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "WorkingDir": "/"
+  }
+}

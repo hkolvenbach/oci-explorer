@@ -1,0 +1,34 @@
+{
+  "architecture": "arm",
+  "created": "2025-12-18T00:12:14.302475137Z",
+  "history": [
+    {
+      "created": "2025-12-18T00:12:14.302475137Z",
+      "created_by": "ADD alpine-minirootfs-3.23.2-armhf.tar.gz / # buildkit",
+      "comment": "buildkit.dockerfile.v0"
+    },
+    {
+      "created": "2025-12-18T00:12:14.302475137Z",
+      "created_by": "CMD [\"/bin/sh\"]",
+      "comment": "buildkit.dockerfile.v0",
+      "empty_layer": true
+    }
+  ],
+  "os": "linux",
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:c541843d5a35ccdd78c1b2bcfdc6ba34059968baab145468e6f3783d290af94f"
+    ]
+  },
+  "config": {
+    "Cmd": [
+      "/bin/sh"
+    ],
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "WorkingDir": "/"
+  },
+  "variant": "v6"
+}

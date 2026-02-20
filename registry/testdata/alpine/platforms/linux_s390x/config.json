@@ -1,0 +1,33 @@
+{
+  "architecture": "s390x",
+  "created": "2025-12-18T00:11:56.257585481Z",
+  "history": [
+    {
+      "created": "2025-12-18T00:11:56.257585481Z",
+      "created_by": "ADD alpine-minirootfs-3.23.2-s390x.tar.gz / # buildkit",
+      "comment": "buildkit.dockerfile.v0"
+    },
+    {
+      "created": "2025-12-18T00:11:56.257585481Z",
+      "created_by": "CMD [\"/bin/sh\"]",
+      "comment": "buildkit.dockerfile.v0",
+      "empty_layer": true
+    }
+  ],
+  "os": "linux",
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:7f9cdfdd9ff0fb76440fcb00097ceea917c0dbd15e92e080240c731276863dbc"
+    ]
+  },
+  "config": {
+    "Cmd": [
+      "/bin/sh"
+    ],
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "WorkingDir": "/"
+  }
+}

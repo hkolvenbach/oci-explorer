@@ -1,0 +1,272 @@
+{
+  "_type": "https://in-toto.io/Statement/v0.1",
+  "predicate": {
+    "buildConfig": {
+      "digestMapping": {
+        "sha256:4e2ca7fac1bc464ff0a1db9c88dbe735c8553344bb67c71361d7a809f95d7ed4": "step2",
+        "sha256:5ee646c8ae7dbc16ee5d03c2a8680c03b2edc7230efdb6cf609ad0e809201762": "step1",
+        "sha256:84d0aeb8a7f2a44585f71f60dea92c93c9c24606fd02e80cbaadbb76a8ef5b44": "step0"
+      },
+      "llbDefinition": [
+        {
+          "id": "step0",
+          "op": {
+            "Op": {
+              "source": {
+                "attrs": {
+                  "git.authheadersecret": "GIT_AUTH_HEADER",
+                  "git.authtokensecret": "GIT_AUTH_TOKEN",
+                  "git.fullurl": "https://github.com/alpinelinux/docker-alpine.git"
+                },
+                "identifier": "git://github.com/alpinelinux/docker-alpine.git#13b62f5f47ffa526f9c372e0bd73b33ef2a5f865:ppc64le"
+              }
+            },
+            "constraints": {}
+          }
+        },
+        {
+          "id": "step1",
+          "inputs": [
+            "step0:0"
+          ],
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "Action": {
+                      "copy": {
+                        "allowEmptyWildcard": true,
+                        "allowWildcard": true,
+                        "attemptUnpackDockerCompatibility": true,
+                        "createDestPath": true,
+                        "dest": "/",
+                        "dirCopyContents": true,
+                        "followSymlink": true,
+                        "mode": -1,
+                        "src": "/alpine-minirootfs-3.23.2-ppc64le.tar.gz",
+                        "timestamp": -1
+                      }
+                    },
+                    "input": -1,
+                    "output": 0,
+                    "secondaryInput": 0
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          }
+        },
+        {
+          "id": "step2",
+          "inputs": [
+            "step1:0"
+          ],
+          "op": {
+            "Op": null
+          }
+        }
+      ]
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "builder": {
+      "id": "https://github.com/docker-library"
+    },
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Dockerfile",
+        "uri": "https://github.com/alpinelinux/docker-alpine.git#13b62f5f47ffa526f9c372e0bd73b33ef2a5f865:ppc64le"
+      },
+      "environment": {
+        "platform": "linux/ppc64le"
+      },
+      "parameters": {
+        "args": {
+          "build-arg:BUILDKIT_DOCKERFILE_CHECK": "skip=all",
+          "build-arg:BUILDKIT_SYNTAX": "tianon/buildkit:0.16@sha256:694a4904b621b37f038dce7f95f01d0b574450591fd4775dae5ccc69118e94cd",
+          "cmdline": "tianon/buildkit:0.16@sha256:694a4904b621b37f038dce7f95f01d0b574450591fd4775dae5ccc69118e94cd",
+          "source": "tianon/buildkit:0.16@sha256:694a4904b621b37f038dce7f95f01d0b574450591fd4775dae5ccc69118e94cd"
+        },
+        "frontend": "gateway.v0",
+        "secrets": [
+          {
+            "id": "GIT_AUTH_HEADER",
+            "optional": true
+          },
+          {
+            "id": "GIT_AUTH_TOKEN",
+            "optional": true
+          }
+        ]
+      }
+    },
+    "materials": [
+      {
+        "digest": {
+          "sha256": "13c89fb6085aceb41f9556825c59d957917a3be670e3493598bd1f7f2a49f2fe"
+        },
+        "uri": "pkg:docker/docker/scout-sbom-indexer@1?digest=sha256:13c89fb6085aceb41f9556825c59d957917a3be670e3493598bd1f7f2a49f2fe"
+      },
+      {
+        "digest": {
+          "sha256": "694a4904b621b37f038dce7f95f01d0b574450591fd4775dae5ccc69118e94cd"
+        },
+        "uri": "pkg:docker/tianon/buildkit@0.16?digest=sha256:694a4904b621b37f038dce7f95f01d0b574450591fd4775dae5ccc69118e94cd\u0026platform=linux%2Fppc64le"
+      },
+      {
+        "digest": {
+          "sha256": "694a4904b621b37f038dce7f95f01d0b574450591fd4775dae5ccc69118e94cd"
+        },
+        "uri": "pkg:docker/tianon/buildkit@0.16?digest=sha256:694a4904b621b37f038dce7f95f01d0b574450591fd4775dae5ccc69118e94cd"
+      },
+      {
+        "digest": {
+          "sha1": "13b62f5f47ffa526f9c372e0bd73b33ef2a5f865"
+        },
+        "uri": "https://github.com/alpinelinux/docker-alpine.git#13b62f5f47ffa526f9c372e0bd73b33ef2a5f865"
+      }
+    ],
+    "metadata": {
+      "buildFinishedOn": "2025-12-18T00:11:37.429093628Z",
+      "buildInvocationID": "mgb7xwwdxrfl3abyn5gtgu19c",
+      "buildStartedOn": "2025-12-18T00:11:27.944966853Z",
+      "completeness": {
+        "environment": true,
+        "materials": true,
+        "parameters": true
+      },
+      "https://mobyproject.org/buildkit@v1#hermetic": true,
+      "https://mobyproject.org/buildkit@v1#metadata": {
+        "layers": {
+          "step1:0": [
+            [
+              {
+                "digest": "sha256:2dbbc2b20d556edcc853ddf744c4b2e946f16fba62ed0f0c4526533fdaa56e3b",
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "size": 3827755
+              }
+            ]
+          ]
+        },
+        "source": {
+          "infos": [
+            {
+              "data": "RlJPTSBzY3JhdGNoCkFERCBhbHBpbmUtbWluaXJvb3Rmcy0zLjIzLjItcHBjNjRsZS50YXIuZ3ogLwpDTUQgWyIvYmluL3NoIl0K",
+              "digestMapping": {
+                "sha256:84d0aeb8a7f2a44585f71f60dea92c93c9c24606fd02e80cbaadbb76a8ef5b44": "step0",
+                "sha256:c8f4da5a7e01c2835ca8815837107d93db8f96f47ff5be870f85a8256139a0fe": "step1"
+              },
+              "filename": "Dockerfile",
+              "language": "Dockerfile",
+              "llbDefinition": [
+                {
+                  "id": "step0",
+                  "op": {
+                    "Op": {
+                      "source": {
+                        "attrs": {
+                          "git.authheadersecret": "GIT_AUTH_HEADER",
+                          "git.authtokensecret": "GIT_AUTH_TOKEN",
+                          "git.fullurl": "https://github.com/alpinelinux/docker-alpine.git"
+                        },
+                        "identifier": "git://github.com/alpinelinux/docker-alpine.git#13b62f5f47ffa526f9c372e0bd73b33ef2a5f865:ppc64le"
+                      }
+                    },
+                    "constraints": {}
+                  }
+                },
+                {
+                  "id": "step1",
+                  "inputs": [
+                    "step0:0"
+                  ],
+                  "op": {
+                    "Op": null
+                  }
+                }
+              ]
+            }
+          ],
+          "locations": {
+            "step0": {},
+            "step1": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "end": {
+                        "line": 2
+                      },
+                      "start": {
+                        "line": 2
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      },
+      "reproducible": false
+    }
+  },
+  "predicateType": "https://slsa.dev/provenance/v0.2",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/alpine@3.23.2?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/alpine@3.23?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/alpine@3?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/alpine@latest?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/ppc64le/alpine@3.23.2?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/ppc64le/alpine@3.23?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/ppc64le/alpine@3?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/ppc64le/alpine@latest?platform=linux%2Fppc64le"
+    },
+    {
+      "digest": {
+        "sha256": "a78fa7e4e73252c55e6ebd28dfb1e78d82a0f70d392e2cddcc7f545bf7d7ec16"
+      },
+      "name": "pkg:docker/oisupport/staging-ppc64le@7271df58d8a6d268f788fd0b0581ef64f142e9ae9c03648cc8475cc1191724f2?platform=linux%2Fppc64le"
+    }
+  ]
+}

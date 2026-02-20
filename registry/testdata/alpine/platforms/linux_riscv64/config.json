@@ -1,0 +1,33 @@
+{
+  "architecture": "riscv64",
+  "created": "2025-12-18T02:40:00.564972515Z",
+  "history": [
+    {
+      "created": "2025-12-18T02:40:00.564972515Z",
+      "created_by": "ADD alpine-minirootfs-3.23.2-riscv64.tar.gz / # buildkit",
+      "comment": "buildkit.dockerfile.v0"
+    },
+    {
+      "created": "2025-12-18T02:40:00.564972515Z",
+      "created_by": "CMD [\"/bin/sh\"]",
+      "comment": "buildkit.dockerfile.v0",
+      "empty_layer": true
+    }
+  ],
+  "os": "linux",
+  "rootfs": {
+    "type": "layers",
+    "diff_ids": [
+      "sha256:94f5d975ebf422d5470a1540688b01c25180a4e99f532a4d2cdb3a1e5ce438ec"
+    ]
+  },
+  "config": {
+    "Cmd": [
+      "/bin/sh"
+    ],
+    "Env": [
+      "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    ],
+    "WorkingDir": "/"
+  }
+}

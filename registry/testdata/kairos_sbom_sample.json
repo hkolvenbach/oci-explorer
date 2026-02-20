@@ -1,0 +1,100 @@
+{
+  "_type": "https://in-toto.io/Statement/v0.1",
+  "predicateType": "https://spdx.dev/Document",
+  "subject": [
+    {
+      "name": "pkg:docker/quay.io/kairos/ubuntu@22.04-standard-amd64-generic-v3.5.2-k3s-v1.33.4-k3s1?platform=linux%2Famd64",
+      "digest": {
+        "sha256": "c93ad9a4ed48c4fb9eed1bf52397effe2b6ec40bb99685015957f8406857f54a"
+      }
+    }
+  ],
+  "predicate": {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "sbom",
+    "documentNamespace": "https://anchore.com/syft/dir/sbom-81e03b81-254b-4b19-91e7-be82c8381738",
+    "creationInfo": {
+      "licenseListVersion": "3.25",
+      "creators": [
+        "Organization: Anchore, Inc",
+        "Tool: syft-v1.29.0",
+        "Tool: buildkit-v0.23.2"
+      ],
+      "created": "2025-08-28T11:21:56Z"
+    },
+    "packages": [
+      {
+        "name": "104_quad_8",
+        "SPDXID": "SPDXRef-Package-linux-kernel-module-104-quad-8-251d8c9089779dc0",
+        "versionInfo": "UNKNOWN",
+        "supplier": "Person: William Breathitt Gray (vilhelm.gray@gmail.com)",
+        "originator": "Person: William Breathitt Gray (vilhelm.gray@gmail.com)",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "sourceInfo": "acquired package info from linux kernel module files: /usr/lib/modules/6.8.0-78-generic/kernel/drivers/counter/104-quad-8.ko",
+        "licenseConcluded": "NOASSERTION",
+        "licenseDeclared": "LicenseRef-GPL-v2",
+        "copyrightText": "NOASSERTION",
+        "externalRefs": [
+          {
+            "referenceCategory": "SECURITY",
+            "referenceType": "cpe23Type",
+            "referenceLocator": "cpe:2.3:a:104_quad_8:104_quad_8:*:*:*:*:*:*:*:*"
+          },
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:generic/104_quad_8"
+          }
+        ]
+      },
+      {
+        "name": "3c509",
+        "SPDXID": "SPDXRef-Package-linux-kernel-module-3c509-49ca97a4277f99d3",
+        "versionInfo": "UNKNOWN",
+        "supplier": "NOASSERTION",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": false,
+        "sourceInfo": "acquired package info from linux kernel module files: /usr/lib/modules/6.8.0-78-generic/kernel/drivers/net/ethernet/3com/3c509.ko",
+        "licenseConcluded": "NOASSERTION",
+        "licenseDeclared": "LicenseRef-GPL",
+        "copyrightText": "NOASSERTION",
+        "externalRefs": [
+          {
+            "referenceCategory": "SECURITY",
+            "referenceType": "cpe23Type",
+            "referenceLocator": "cpe:2.3:a:3c509:3c509:*:*:*:*:*:*:*:*"
+          },
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:generic/3c509"
+          }
+        ]
+      },
+      {
+        "name": "adduser",
+        "SPDXID": "SPDXRef-Package-deb-adduser-d92eefd2f2007729",
+        "versionInfo": "3.118ubuntu5",
+        "supplier": "NOASSERTION",
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": true,
+        "packageVerificationCode": {
+          "packageVerificationCodeValue": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+        },
+        "licenseConcluded": "NOASSERTION",
+        "licenseDeclared": "GPL-2.0-only",
+        "copyrightText": "NOASSERTION",
+        "externalRefs": [
+          {
+            "referenceCategory": "PACKAGE-MANAGER",
+            "referenceType": "purl",
+            "referenceLocator": "pkg:deb/ubuntu/adduser@3.118ubuntu5?arch=all&distro=ubuntu-22.04"
+          }
+        ]
+      }
+    ]
+  }
+}
