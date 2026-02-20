@@ -19,6 +19,33 @@ A local Go application that visualizes OCI container image structures including 
 - **Graph View** - Visual diagram showing relationships between components
 - **Authentication** - Uses Docker credential helpers for private registries
 
+## Quick Start
+
+### Prerequisites
+
+- Go 1.24 or later
+- Make (optional, for build automation)
+
+### Build & Run
+
+```bash
+# Clone or download this project
+git clone https://github.com/hkolvenbach/oci-explorer.git
+cd oci-explorer
+
+# Download dependencies
+go mod tidy
+
+# Build and run
+make run
+
+# Or manually
+go build -o build/oci-explorer .
+./build/oci-explorer
+```
+
+The application starts a web server at http://localhost:8080
+
 ## Screenshots
 
 ### CLI Startup
@@ -49,32 +76,6 @@ Inspecting `alpine:latest` — shows platforms, layers, referrers, and SBOMs:
 Interactive graph visualization of the full image structure:
 
 ![Graph view](docs/screenshots/graph.png)
-
-## Quick Start
-
-### Prerequisites
-
-- Go 1.24 or later
-- Make (optional, for build automation)
-
-### Build & Run
-
-```bash
-# Clone or download this project
-cd oci-explorer
-
-# Download dependencies
-go mod tidy
-
-# Build and run
-make run
-
-# Or manually
-go build -o build/oci-explorer .
-./build/oci-explorer
-```
-
-The application starts a web server at http://localhost:8080
 
 ### Command Line Flags
 
