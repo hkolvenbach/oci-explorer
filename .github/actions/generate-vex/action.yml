@@ -73,9 +73,9 @@ runs:
 
         # Print filtering summary
         TOTAL_OSVS=$(jq -r 'select(.osv) | .osv.id' govulncheck-output.json | sort -u | wc -l | tr -d ' ')
-        FINDING_COUNT=$(echo "$ALL_FINDING_OSVS" | grep -c . 2>/dev/null || echo 0)
-        CALLED_COUNT=$(echo "$CALLED_OSVS" | grep -c . 2>/dev/null || echo 0)
-        NOT_CALLED_COUNT=$(echo "$NOT_CALLED_OSVS" | grep -c . 2>/dev/null || echo 0)
+        FINDING_COUNT=$(echo "$ALL_FINDING_OSVS" | grep -c . || true)
+        CALLED_COUNT=$(echo "$CALLED_OSVS" | grep -c . || true)
+        NOT_CALLED_COUNT=$(echo "$NOT_CALLED_OSVS" | grep -c . || true)
         EXCLUDED_COUNT=$((TOTAL_OSVS - FINDING_COUNT))
 
         echo "============================================"
