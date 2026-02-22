@@ -48,23 +48,24 @@ runs:
         # dependencies but not even imported — these are excluded from VEX entirely.
 
         # 1. Get OSV IDs for CALLED (reachable) vulnerabilities
-        CALLED_OSVS=$(jq -r 'select(.finding) | select(.finding.trace[0].function) | .finding.osv' govulncheck-output.json | sort -u)
+        CALLED_OSVS=$(jq -r 'select(.finding) | select(.finding.trace[0].function) | .finding.osv' govulncheck-output.json | sort -u || true)
 
         # 2. Get OSV IDs for all findings (called + not-called)
-        ALL_FINDING_OSVS=$(jq -r 'select(.finding) | .finding.osv' govulncheck-output.json | sort -u)
+        ALL_FINDING_OSVS=$(jq -r 'select(.finding) | .finding.osv' govulncheck-output.json | sort -u || true)
 
         # 3. Not-called = findings that are NOT in the called set
-        NOT_CALLED_OSVS=$(comm -23 <(echo "$ALL_FINDING_OSVS") <(echo "$CALLED_OSVS"))
+        NOT_CALLED_OSVS=$(comm -23 <(echo "$ALL_FINDING_OSVS") <(echo "$CALLED_OSVS") || true)
 
         # Helper: resolve OSV IDs to CVE/GHSA aliases
         resolve_aliases() {
           local osv_ids="$1"
           local cves=""
           for osv in $osv_ids; do
-            aliases=$(jq -r "select(.osv) | select(.osv.id == \"$osv\") | .osv.aliases[]" govulncheck-output.json 2>/dev/null | sort -u)
+            aliases=$(jq -r "select(.osv) | select(.osv.id == \"$osv\") | .osv.aliases[]" govulncheck-output.json 2>/dev/null | sort -u || true)
             cves="$cves $aliases"
           done
-          echo "$cves" | tr ' ' '\n' | grep -E '^CVE-|^GHSA-' | sort -u
+          # grep returns exit code 1 when no matches; use || true to avoid failing with set -e
+          echo "$cves" | tr ' ' '\n' | grep -E '^CVE-|^GHSA-' | sort -u || true
         }
 
         CALLED_CVES=$(resolve_aliases "$CALLED_OSVS")
@@ -72,9 +73,9 @@ runs:
 
         # Print filtering summary
         TOTAL_OSVS=$(jq -r 'select(.osv) | .osv.id' govulncheck-output.json | sort -u | wc -l | tr -d ' ')
-        FINDING_COUNT=$(echo "$ALL_FINDING_OSVS" | grep -c . || echo 0)
-        CALLED_COUNT=$(echo "$CALLED_OSVS" | grep -c . || echo 0)
-        NOT_CALLED_COUNT=$(echo "$NOT_CALLED_OSVS" | grep -c . || echo 0)
+        FINDING_COUNT=$(echo "$ALL_FINDING_OSVS" | grep -c . 2>/dev/null || echo 0)
+        CALLED_COUNT=$(echo "$CALLED_OSVS" | grep -c . 2>/dev/null || echo 0)
+        NOT_CALLED_COUNT=$(echo "$NOT_CALLED_OSVS" | grep -c . 2>/dev/null || echo 0)
         EXCLUDED_COUNT=$((TOTAL_OSVS - FINDING_COUNT))
 
         echo "============================================"
