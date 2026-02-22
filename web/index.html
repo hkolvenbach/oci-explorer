@@ -151,23 +151,48 @@
         let panStartX = 0;
         let panStartY = 0;
 
+        // Spinner SVG used for loading states on buttons
+        const SPINNER_SVG = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+
+        // Wraps an async function with button spinner + disable/enable logic
+        async function withSpinner(event, asyncFn) {
+            event.stopPropagation();
+            const btn = event.currentTarget;
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = SPINNER_SVG;
+            btn.disabled = true;
+            try {
+                await asyncFn();
+            } finally {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }
+        }
+
+        // Downloads a Blob as a file
+        function downloadBlob(blob, filename) {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+
+        // Shows one container and hides all others
+        function showContainer(name) {
+            ['welcome-container', 'image-container', 'error-container', 'loading-container'].forEach(id => {
+                document.getElementById(id).classList.toggle('hidden', id !== name);
+            });
+        }
+
         // View mode toggles (false = graphical, true = JSON)
-        let configJsonView = false;
-        let annotationsJsonView = false;
-        let imageIndexJsonView = false;
+        const viewToggles = { config: false, annotations: false, imageIndex: false };
 
-        function toggleConfigView() {
-            configJsonView = !configJsonView;
-            if (currentData) renderImageData(currentData);
-        }
-
-        function toggleAnnotationsView() {
-            annotationsJsonView = !annotationsJsonView;
-            if (currentData) renderImageData(currentData);
-        }
-
-        function toggleImageIndexView() {
-            imageIndexJsonView = !imageIndexJsonView;
+        function toggleView(key) {
+            viewToggles[key] = !viewToggles[key];
             if (currentData) renderImageData(currentData);
         }
 
@@ -195,10 +220,7 @@
             } else {
                 // No image in URL, show welcome screen
                 document.getElementById('image-input').value = 'alpine:latest';
-                document.getElementById('welcome-container').classList.remove('hidden');
-                document.getElementById('image-container').classList.add('hidden');
-                document.getElementById('error-container').classList.add('hidden');
-                document.getElementById('loading-container').classList.add('hidden');
+                showContainer('welcome-container');
                 currentData = null;
             }
         }
@@ -305,10 +327,7 @@
             collapseStates = {};
 
             // Show loading
-            document.getElementById('welcome-container').classList.add('hidden');
-            document.getElementById('image-container').classList.add('hidden');
-            document.getElementById('error-container').classList.add('hidden');
-            document.getElementById('loading-container').classList.remove('hidden');
+            showContainer('loading-container');
 
             // Update button
             document.getElementById('inspect-btn').disabled = true;
@@ -326,17 +345,14 @@
 
                 currentData = result.data;
                 renderImageData(result.data);
-
-                document.getElementById('loading-container').classList.add('hidden');
-                document.getElementById('image-container').classList.remove('hidden');
+                showContainer('image-container');
 
                 // Update URL after successful inspection (unless navigating history)
                 if (!skipURLUpdate) {
                     updateURLWithImage(imageRef);
                 }
             } catch (error) {
-                document.getElementById('loading-container').classList.add('hidden');
-                document.getElementById('error-container').classList.remove('hidden');
+                showContainer('error-container');
                 document.getElementById('error-message').textContent = error.message;
             } finally {
                 // Reset button
@@ -599,14 +615,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                             </svg>
                         </button>
-                        <button onclick="toggleImageIndexView(); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${imageIndexJsonView ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
+                        <button onclick="toggleView('imageIndex'); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${viewToggles.imageIndex ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
                             </svg>
                         </button>
                     </div>
                     <div id="index-content" class="p-4 space-y-2">
-                        ${imageIndexJsonView ? `
+                        ${viewToggles.imageIndex ? `
                             <pre class="bg-slate-900 p-4 rounded-lg overflow-auto max-h-96 scrollbar-thin text-xs font-mono text-slate-300">${JSON.stringify(imageIndex, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
                         ` : validManifests.length === 0 ? `
                             <div class="text-center py-6 text-slate-500">
@@ -722,14 +738,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                             </svg>
                         </button>
-                        <button onclick="toggleAnnotationsView(); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${annotationsJsonView ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
+                        <button onclick="toggleView('annotations'); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${viewToggles.annotations ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
                             </svg>
                         </button>
                     </div>
                     <div id="annotations-content" class="p-4 space-y-2 hidden">
-                        ${annotationsJsonView ? `
+                        ${viewToggles.annotations ? `
                             <pre class="bg-slate-900 p-4 rounded-lg overflow-auto max-h-64 scrollbar-thin text-xs font-mono text-slate-300">${JSON.stringify(annotations, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
                         ` : `
                         ${entries.map(([k, v]) => `
@@ -760,14 +776,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                             </svg>
                         </button>
-                        <button onclick="toggleConfigView(); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${configJsonView ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
+                        <button onclick="toggleView('config'); event.stopPropagation();" class="px-3 py-2 mr-2 rounded text-xs font-medium transition-colors ${viewToggles.config ? 'bg-blue-500/30 text-blue-300' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}" title="Toggle JSON view">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
                             </svg>
                         </button>
                     </div>
                     <div id="config-content" class="p-4">
-                        ${configJsonView ? `
+                        ${viewToggles.config ? `
                             <pre class="bg-slate-900 p-4 rounded-lg overflow-auto max-h-96 scrollbar-thin text-xs font-mono text-slate-300">${JSON.stringify(config, null, 2).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
                         ` : `
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -857,92 +873,34 @@
         }
 
         async function downloadSBOM(repository, digest, event) {
-            event.stopPropagation();
-            const btn = event.currentTarget;
-            const originalContent = btn.innerHTML;
-
-            btn.innerHTML = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
-            btn.disabled = true;
-
-            try {
+            await withSpinner(event, async () => {
                 const response = await fetch(`/api/sbom?repository=${encodeURIComponent(repository)}&digest=${encodeURIComponent(digest)}`);
                 if (!response.ok) {
                     const error = await response.json();
                     throw new Error(error.error || 'Failed to download SBOM');
                 }
-
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `sbom-${digest.substring(7, 19)}.json`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-            } catch (error) {
-                alert('Error downloading SBOM: ' + error.message);
-            } finally {
-                btn.innerHTML = originalContent;
-                btn.disabled = false;
-            }
+                downloadBlob(await response.blob(), `sbom-${digest.substring(7, 19)}.json`);
+            }).catch(error => alert('Error downloading SBOM: ' + error.message));
         }
 
         async function downloadVEX(repository, digest, event) {
-            event.stopPropagation();
-            const btn = event.currentTarget;
-            const originalContent = btn.innerHTML;
-
-            btn.innerHTML = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
-            btn.disabled = true;
-
-            try {
+            await withSpinner(event, async () => {
                 const response = await fetch(`/api/vex?repository=${encodeURIComponent(repository)}&digest=${encodeURIComponent(digest)}`);
                 const result = await response.json();
-
-                if (!result.success) {
-                    throw new Error(result.error || 'Failed to fetch VEX');
-                }
-
-                const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `vex-${digest.substring(7, 19)}.json`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-            } catch (error) {
-                alert('Error downloading VEX: ' + error.message);
-            } finally {
-                btn.innerHTML = originalContent;
-                btn.disabled = false;
-            }
+                if (!result.success) throw new Error(result.error || 'Failed to fetch VEX');
+                downloadBlob(new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' }), `vex-${digest.substring(7, 19)}.json`);
+            }).catch(error => alert('Error downloading VEX: ' + error.message));
         }
 
         async function fetchVEX(repository, digest, index, event) {
-            event.stopPropagation();
-            const btn = event.currentTarget;
-            const originalContent = btn.innerHTML;
-
-            btn.innerHTML = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
-            btn.disabled = true;
-
-            try {
+            await withSpinner(event, async () => {
                 const response = await fetch(`/api/vex?repository=${encodeURIComponent(repository)}&digest=${encodeURIComponent(digest)}`);
                 const result = await response.json();
+                if (!result.success) throw new Error(result.error || 'Failed to fetch VEX');
 
-                if (!result.success) {
-                    throw new Error(result.error || 'Failed to fetch VEX');
-                }
-
-                // Render VEX content in the detail section
                 const detailEl = document.getElementById(`referrer-detail-${index}`);
                 if (detailEl) {
-                    // Show the detail section if hidden
                     detailEl.classList.remove('hidden');
-                    // Find or create VEX content container
                     let vexContainer = detailEl.querySelector('.vex-content');
                     if (!vexContainer) {
                         vexContainer = document.createElement('div');
@@ -951,12 +909,7 @@
                     }
                     vexContainer.innerHTML = renderVEXContent(result.data);
                 }
-            } catch (error) {
-                alert('Error fetching VEX: ' + error.message);
-            } finally {
-                btn.innerHTML = originalContent;
-                btn.disabled = false;
-            }
+            }).catch(error => alert('Error fetching VEX: ' + error.message));
         }
 
         function renderVEXContent(vex) {
