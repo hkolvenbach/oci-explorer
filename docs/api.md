@@ -266,12 +266,22 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | Classified type: `sbom`, `signature`, `attestation`, `vulnerability-scan`, `artifact` |
+| `type` | string | Classified type: `sbom`, `signature`, `attestation`, `vex`, `vulnerability-scan`, `artifact` |
 | `mediaType` | string | Artifact media type |
 | `digest` | string | Artifact digest |
 | `size` | integer | Artifact size in bytes |
 | `artifactType` | string | OCI artifact type URI |
 | `annotations` | object | Artifact annotations |
+| `signatureInfo` | object | Cosign signature details (only for signatures with Sigstore certificates) |
+
+#### SignatureInfo Object
+
+Present on signature referrers that have a Sigstore certificate.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `issuer` | string | OIDC issuer from Sigstore certificate extension (e.g., `https://token.actions.githubusercontent.com`) |
+| `identity` | string | Certificate identity — email or URI SAN (e.g., GitHub Actions workflow URL) |
 
 #### Error Response
 
@@ -453,6 +463,111 @@ Content-Type: application/json
 
 ---
 
+### GET /api/vex
+
+Fetch and parse a VEX (Vulnerability Exploitability eXchange) document from an attestation.
+
+#### Request
+
+```http
+GET /api/vex?repository=ghcr.io/hkolvenbach/oci-explorer&digest=sha256:a1b2c3d4... HTTP/1.1
+Host: localhost:8080
+```
+
+#### Query Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `repository` | Yes | Full repository name |
+| `digest` | Yes | Digest of the attestation manifest containing the VEX document |
+
+#### Response (Success)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "data": {
+    "@context": "https://openvex.dev/ns/v0.2.0",
+    "@id": "https://example.com/vex/2024-01-15/1",
+    "author": "Example Security Team <security@example.com>",
+    "timestamp": "2024-01-15T10:00:00Z",
+    "last_updated": "2024-01-16T12:00:00Z",
+    "version": 2,
+    "statements": [
+      {
+        "vulnerability": {
+          "name": "CVE-2023-44487"
+        },
+        "products": [{"@id": "pkg:oci/myimage@sha256:abc123"}],
+        "status": "not_affected",
+        "status_notes": "govulncheck confirms this code path is not reachable",
+        "justification": "vulnerable_code_not_present",
+        "impact_statement": "The HTTP/2 rapid reset vulnerability does not affect this image."
+      }
+    ]
+  }
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `@context` | string | OpenVEX context URI |
+| `@id` | string | Unique document identifier |
+| `author` | string | Document author |
+| `timestamp` | string | Document creation timestamp (ISO 8601) |
+| `last_updated` | string | Document last updated timestamp |
+| `version` | integer | Document version number |
+| `statements` | array | VEX statements |
+
+#### VEXStatement Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vulnerability` | object | Contains `name` (CVE ID or vulnerability identifier) |
+| `products` | array | Product identifiers, each with `@id` (typically a purl) |
+| `status` | string | One of: `not_affected`, `affected`, `fixed`, `under_investigation` |
+| `status_notes` | string | Additional notes about the status determination |
+| `justification` | string | Justification when status is `not_affected` |
+| `impact_statement` | string | Human-readable impact description |
+| `timestamp` | string | Statement-level timestamp (if different from document) |
+
+#### Processing Details
+
+1. Fetches the attestation manifest at the specified digest
+2. Searches layers for VEX/OpenVEX predicate types
+3. Extracts the layer blob (handles DSSE envelope and in-toto attestation formats)
+4. Parses the VEX document from the `predicate` field
+5. Returns the structured VEX document
+
+#### Error Response
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "success": false,
+  "error": "repository and digest parameters are required"
+}
+```
+
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+
+{
+  "success": false,
+  "error": "no VEX layer found in attestation manifest"
+}
+```
+
+---
+
 ## Error Handling
 
 All API responses follow a consistent format:
@@ -494,6 +609,7 @@ All API responses follow a consistent format:
 | `invalid repository: ...` | Malformed repository name |
 | `failed to fetch image: ...` | Registry communication error |
 | `no SBOM layer found in attestation manifest` | Attestation doesn't contain SBOM |
+| `no VEX layer found in attestation manifest` | Attestation doesn't contain VEX |
 
 ---
 
@@ -533,6 +649,11 @@ curl "http://localhost:8080/api/tags?repository=library/nginx"
 **Download SBOM:**
 ```bash
 curl -o sbom.json "http://localhost:8080/api/sbom?repository=index.docker.io/library/alpine&digest=sha256:abc123..."
+```
+
+**Fetch VEX:**
+```bash
+curl "http://localhost:8080/api/vex?repository=ghcr.io/hkolvenbach/oci-explorer&digest=sha256:abc123..."
 ```
 
 ### JavaScript Examples

@@ -8,12 +8,22 @@ import (
 	"testing/fstest"
 )
 
+const testTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{.Title}} - OCI Explorer Docs</title>
+</head>
+<body>{{.Content}}</body>
+</html>`
+
 func testFS() *Handler {
 	fs := fstest.MapFS{
 		"docs/api.md":        {Data: []byte("# API Reference\n\nSome content here.")},
 		"docs/openapi.yaml":  {Data: []byte("openapi: 3.0.3\ninfo:\n  title: Test API")},
 		"docs/data.json":     {Data: []byte(`{"key": "value"}`)},
 		"docs/readme.txt":    {Data: []byte("plain text content")},
+		"docs/template.html": {Data: []byte(testTemplate)},
 	}
 	return &Handler{docsFS: fs, verbose: false}
 }

@@ -11,10 +11,12 @@ A local Go application that visualizes OCI container image structures including 
 - **Configuration Details** - See runtime config including entrypoint, cmd, env vars, exposed ports
 - **Build History** - Trace the Dockerfile commands that created each layer
 - **Referrers (OCI 1.1)** - View attached artifacts:
-  - Signatures (Notary, Cosign)
-  - SBOMs (CycloneDX, SPDX)
+  - Signatures (Notary, Cosign) with Sigstore certificate identity and OIDC issuer
+  - SBOMs (CycloneDX, SPDX) with inline download
   - Attestations (SLSA Provenance, In-Toto)
+  - VEX (OpenVEX) with status badges and vulnerability details
   - Vulnerability Scans
+- **Cosign Tag Discovery** - Finds `.sig` and `.att` cosign tags alongside OCI Referrers API
 - **Tag Listing** - Browse all tags for a repository
 - **Graph View** - Visual diagram showing relationships between components
 - **Authentication** - Uses Docker credential helpers for private registries
@@ -67,9 +69,15 @@ The application starts a web server at http://localhost:8080
 
 ### Details View
 
-Inspecting `alpine:latest` — shows platforms, layers, referrers, and SBOMs:
+Inspecting `ghcr.io/hkolvenbach/oci-explorer:latest` — shows platforms, layers, configuration, and build history:
 
 ![Details view](docs/screenshots/details.png)
+
+### Referrers View
+
+Supply chain artifacts: cosign signatures with Sigstore identity, SBOMs, attestations, and VEX documents:
+
+![Referrers view](docs/screenshots/referrers.png)
 
 ### Graph View
 
@@ -158,6 +166,16 @@ Download SBOM content from an attestation manifest.
 - `digest` (required) - Digest of the attestation manifest containing the SBOM
 
 **Response:** Raw SBOM content (SPDX or CycloneDX JSON) with `Content-Disposition: attachment`
+
+### GET /api/vex
+
+Fetch and parse a VEX (Vulnerability Exploitability eXchange) document from an attestation.
+
+**Query Parameters:**
+- `repository` (required) - Full repository name
+- `digest` (required) - Digest of the attestation manifest containing the VEX document
+
+**Response:** Parsed OpenVEX document with statements, status, justifications, and product identifiers.
 
 ### GET /api/health
 
@@ -272,10 +290,13 @@ oci-explorer/
 │   ├── api.md           # API reference (served at /docs/)
 │   ├── openapi.yaml     # OpenAPI specification (served at /api/openapi.yaml)
 │   └── screenshots/     # Browser screenshots for README
+├── docshandler/         # Documentation HTTP handlers (extracted from main.go)
+│   ├── docshandler.go   # ServeDocs, ServeOpenAPISpec, markdownToHTML
+│   └── docshandler_test.go
 ├── registry/
 │   ├── client.go        # OCI registry client using go-containerregistry
 │   ├── client_test.go   # Registry client tests
-│   └── testdata/        # Test fixtures (Alpine, Kairos image data)
+│   └── testdata/        # Test fixtures (Alpine, Kairos, VEX sample data)
 ├── tools/
 │   ├── download-alpine/ # Alpine test data downloader
 │   └── sbom-extractor/  # Reference SBOM extraction tool

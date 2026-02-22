@@ -1256,6 +1256,14 @@ func TestVEXDocumentParsing(t *testing.T) {
 		t.Errorf("Expected version 2, got %d", vex.Version)
 	}
 
+	if vex.Role != "Document creator" {
+		t.Errorf("Expected role %q, got %q", "Document creator", vex.Role)
+	}
+
+	if vex.Tooling != "vexctl/0.2.0" {
+		t.Errorf("Expected tooling %q, got %q", "vexctl/0.2.0", vex.Tooling)
+	}
+
 	if len(vex.Statements) != 4 {
 		t.Fatalf("Expected 4 statements, got %d", len(vex.Statements))
 	}
@@ -1274,8 +1282,8 @@ func TestVEXDocumentParsing(t *testing.T) {
 
 	for i, expected := range expectedStatements {
 		stmt := vex.Statements[i]
-		if stmt.Vulnerability.ID != expected.vulnID {
-			t.Errorf("Statement %d: expected vuln ID %q, got %q", i, expected.vulnID, stmt.Vulnerability.ID)
+		if stmt.Vulnerability.Name != expected.vulnID {
+			t.Errorf("Statement %d: expected vuln ID %q, got %q", i, expected.vulnID, stmt.Vulnerability.Name)
 		}
 		if stmt.Status != expected.status {
 			t.Errorf("Statement %d: expected status %q, got %q", i, expected.status, stmt.Status)
@@ -1285,12 +1293,24 @@ func TestVEXDocumentParsing(t *testing.T) {
 		}
 	}
 
-	// Verify new fields on first statement
+	// Verify spec fields on first statement (vulnerability details, products, status_notes)
 	stmt0 := vex.Statements[0]
 	if stmt0.StatusNotes != "govulncheck confirms this code path is not reachable" {
 		t.Errorf("Expected status_notes on statement 0, got %q", stmt0.StatusNotes)
 	}
 	if len(stmt0.Products) != 1 || stmt0.Products[0].ID != "pkg:oci/myimage@sha256:abc123" {
 		t.Errorf("Expected product @id on statement 0, got %v", stmt0.Products)
+	}
+	if stmt0.Vulnerability.Description != "HTTP/2 Rapid Reset Attack" {
+		t.Errorf("Expected vulnerability description, got %q", stmt0.Vulnerability.Description)
+	}
+	if len(stmt0.Vulnerability.Aliases) != 1 || stmt0.Vulnerability.Aliases[0] != "GHSA-qppj-fm5r-hxr3" {
+		t.Errorf("Expected vulnerability aliases, got %v", stmt0.Vulnerability.Aliases)
+	}
+
+	// Verify action_statement on affected status (statement 3)
+	stmt3 := vex.Statements[3]
+	if stmt3.ActionStatement != "Update to version 2.0.1 or later to remediate this vulnerability." {
+		t.Errorf("Expected action_statement on statement 3, got %q", stmt3.ActionStatement)
 	}
 }

@@ -1061,35 +1061,56 @@ func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, str
 }
 
 // VEXDocument represents a parsed OpenVEX document.
+// See https://github.com/openvex/spec for the full specification.
 type VEXDocument struct {
 	Context     string         `json:"@context"`
 	ID          string         `json:"@id"`
 	Author      string         `json:"author"`
+	Role        string         `json:"role,omitempty"`
 	Timestamp   string         `json:"timestamp"`
 	LastUpdated string         `json:"last_updated,omitempty"`
 	Version     int            `json:"version,omitempty"`
+	Tooling     string         `json:"tooling,omitempty"`
 	Statements  []VEXStatement `json:"statements"`
 }
 
 // VEXStatement represents a single VEX statement.
 type VEXStatement struct {
-	Vulnerability   VEXVulnerability `json:"vulnerability"`
-	Products        []VEXProduct     `json:"products,omitempty"`
-	Status          string           `json:"status"`
-	StatusNotes     string           `json:"status_notes,omitempty"`
-	Justification   string           `json:"justification,omitempty"`
-	ImpactStatement string           `json:"impact_statement,omitempty"`
-	Timestamp       string           `json:"timestamp,omitempty"`
+	ID                       string           `json:"@id,omitempty"`
+	Version                  int              `json:"version,omitempty"`
+	Vulnerability            VEXVulnerability `json:"vulnerability"`
+	Timestamp                string           `json:"timestamp,omitempty"`
+	LastUpdated              string           `json:"last_updated,omitempty"`
+	Products                 []VEXProduct     `json:"products,omitempty"`
+	Status                   string           `json:"status"`
+	Supplier                 string           `json:"supplier,omitempty"`
+	StatusNotes              string           `json:"status_notes,omitempty"`
+	Justification            string           `json:"justification,omitempty"`
+	ImpactStatement          string           `json:"impact_statement,omitempty"`
+	ActionStatement          string           `json:"action_statement,omitempty"`
+	ActionStatementTimestamp string           `json:"action_statement_timestamp,omitempty"`
 }
 
 // VEXVulnerability identifies the vulnerability in a VEX statement.
 type VEXVulnerability struct {
-	ID string `json:"name"`
+	ID          string   `json:"@id,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
 }
 
-// VEXProduct identifies a product affected by a VEX statement.
+// VEXProduct identifies a product (component) in a VEX statement.
 type VEXProduct struct {
-	ID string `json:"@id"`
+	ID          string          `json:"@id,omitempty"`
+	Identifiers *VEXIdentifiers `json:"identifiers,omitempty"`
+	Hashes      map[string]string `json:"hashes,omitempty"`
+}
+
+// VEXIdentifiers contains software identifiers for a VEX product.
+type VEXIdentifiers struct {
+	PURL  string `json:"purl,omitempty"`
+	CPE22 string `json:"cpe22,omitempty"`
+	CPE23 string `json:"cpe23,omitempty"`
 }
 
 // FetchVEXContent retrieves and parses VEX content from an attestation manifest.

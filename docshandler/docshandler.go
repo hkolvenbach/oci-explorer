@@ -1,8 +1,10 @@
 package docshandler
 
 import (
+	"bytes"
 	"fmt"
 	"html"
+	htmltemplate "html/template"
 	"io/fs"
 	"log"
 	"net/http"
@@ -212,81 +214,30 @@ func (h *Handler) markdownToHTML(markdown string, title string) string {
 		result.WriteString("</p>\n")
 	}
 
-	// Build the HTML page
-	return fmt.Sprintf(`<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>%s - OCI Explorer Docs</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            line-height: 1.6;
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 2rem;
-            color: #333;
-            background: #fafafa;
-        }
-        h1, h2, h3, h4, h5, h6 {
-            color: #1a202c;
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
-        }
-        h1 { border-bottom: 2px solid #3182ce; padding-bottom: 0.3em; }
-        h2 { border-bottom: 1px solid #e2e8f0; padding-bottom: 0.2em; }
-        code {
-            background: #e2e8f0;
-            padding: 0.2em 0.4em;
-            border-radius: 3px;
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 0.9em;
-        }
-        pre {
-            background: #1a202c;
-            color: #e2e8f0;
-            padding: 1em;
-            border-radius: 6px;
-            overflow-x: auto;
-        }
-        pre code {
-            background: none;
-            padding: 0;
-            color: inherit;
-        }
-        a { color: #3182ce; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        table {
-            border-collapse: collapse;
-            width: 100%%;
-            margin: 1em 0;
-        }
-        th, td {
-            border: 1px solid #e2e8f0;
-            padding: 0.5em 1em;
-            text-align: left;
-        }
-        th { background: #f7fafc; }
-        li { margin: 0.3em 0; }
-        hr { border: none; border-top: 1px solid #e2e8f0; margin: 2em 0; }
-        .nav {
-            background: #2d3748;
-            padding: 1em;
-            border-radius: 6px;
-            margin-bottom: 2em;
-        }
-        .nav a { color: #90cdf4; margin-right: 1.5em; }
-        .nav a:hover { color: #fff; }
-    </style>
-</head>
-<body>
-    <nav class="nav">
-        <a href="/docs/">API Reference</a>
-        <a href="/api/openapi.yaml">OpenAPI Spec</a>
-        <a href="/">Back to App</a>
-    </nav>
-    %s
-</body>
-</html>`, strings.TrimSuffix(title, ".md"), result.String())
+	// Load HTML template from embedded filesystem
+	tmplContent, err := fs.ReadFile(h.docsFS, "docs/template.html")
+	if err != nil {
+		// Fallback: return raw converted content if template is missing
+		return result.String()
+	}
+
+	tmpl, err := htmltemplate.New("docs").Parse(string(tmplContent))
+	if err != nil {
+		return result.String()
+	}
+
+	data := struct {
+		Title   string
+		Content htmltemplate.HTML
+	}{
+		Title:   strings.TrimSuffix(title, ".md"),
+		Content: htmltemplate.HTML(result.String()),
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return result.String()
+	}
+
+	return buf.String()
 }

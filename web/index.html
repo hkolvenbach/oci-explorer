@@ -961,6 +961,8 @@
                         ${vex.timestamp ? `<div><span class="text-slate-500">Issued:</span> <span class="text-slate-400">${new Date(vex.timestamp).toLocaleString()}</span></div>` : ''}
                         ${vex.last_updated ? `<div><span class="text-slate-500">Updated:</span> <span class="text-slate-400">${new Date(vex.last_updated).toLocaleString()}</span></div>` : ''}
                         ${vex.version ? `<div><span class="text-slate-500">Version:</span> <span class="text-slate-400">${vex.version}</span></div>` : ''}
+                        ${vex.role ? `<div><span class="text-slate-500">Role:</span> <span class="text-slate-400">${vex.role}</span></div>` : ''}
+                        ${vex.tooling ? `<div><span class="text-slate-500">Tooling:</span> <span class="text-slate-400">${vex.tooling}</span></div>` : ''}
                     </div>
                     <div class="flex flex-wrap gap-2 mb-3 pl-6">
                         ${Object.entries(counts).map(([status, count]) => `
@@ -976,12 +978,17 @@
                                     ${statusLabels[stmt.status] || stmt.status}
                                 </span>
                                 <div class="min-w-0 flex-1">
-                                    <div class="text-xs font-mono font-semibold text-slate-200">${stmt.vulnerability?.name || 'Unknown'}</div>
+                                    <div class="text-xs font-mono font-semibold text-slate-200">
+                                        ${stmt.vulnerability?.name || 'Unknown'}
+                                        ${stmt.vulnerability?.aliases?.length ? `<span class="text-slate-500 font-normal ml-1">(${stmt.vulnerability.aliases.join(', ')})</span>` : ''}
+                                    </div>
+                                    ${stmt.vulnerability?.description ? `<div class="text-xs text-slate-300 mt-0.5">${stmt.vulnerability.description}</div>` : ''}
                                     ${stmt.status_notes ? `<div class="text-xs text-slate-400 mt-0.5">${stmt.status_notes}</div>` : ''}
                                     ${stmt.justification ? `<div class="text-xs text-slate-400 mt-0.5">${stmt.justification.replace(/_/g, ' ')}</div>` : ''}
                                     ${stmt.impact_statement ? `<div class="text-xs text-slate-500 mt-0.5">${stmt.impact_statement}</div>` : ''}
+                                    ${stmt.action_statement ? `<div class="text-xs text-amber-400/80 mt-0.5">${stmt.action_statement}</div>` : ''}
                                     ${(stmt.products && stmt.products.length) ? `
-                                        <div class="text-xs text-slate-500 mt-1 font-mono break-all">${stmt.products.map(p => p['@id'] || '').filter(Boolean).join(', ')}</div>
+                                        <div class="text-xs text-slate-500 mt-1 font-mono break-all">${stmt.products.map(p => p['@id'] || (p.identifiers?.purl) || '').filter(Boolean).join(', ')}</div>
                                     ` : ''}
                                 </div>
                             </div>
