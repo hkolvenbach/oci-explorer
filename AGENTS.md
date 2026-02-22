@@ -2,6 +2,18 @@
 
 This document contains guidelines for AI coding agents working on this codebase.
 
+## Pull Request Requirements
+
+When creating a pull request, always ensure the following are updated as part of the PR:
+
+- **Screenshots**: If UI changes were made, capture new screenshots and update `docs/screenshots/`. The README references `welcome.png`, `details.png`, and `graph.png`.
+- **README.md**: Update feature lists, API endpoint docs, project structure, and any affected sections.
+- **docs/api.md**: Update endpoint documentation, request/response examples, and field tables for any API changes.
+- **docs/openapi.yaml**: Update the OpenAPI spec for any new or modified endpoints, schemas, or parameters.
+- **BLOG.md**: If the change is significant enough to warrant a blog-style write-up, update or note it.
+
+Do not consider a PR complete until documentation and screenshots reflect the current state of the code.
+
 ## Standards and Conventions
 
 Follow established standards and conventions. When in doubt, look up the relevant specification or industry practice rather than guessing.

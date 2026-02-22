@@ -8,6 +8,7 @@ info:
     - Inspect container image structures (manifests, layers, configurations)
     - List repository tags
     - Download SBOM (Software Bill of Materials) content
+    - Fetch VEX (Vulnerability Exploitability eXchange) documents
     - Check server health
 
     No authentication is required. Registry authentication is handled server-side
@@ -32,6 +33,8 @@ tags:
     description: Repository tag endpoints
   - name: SBOM
     description: SBOM download endpoints
+  - name: VEX
+    description: VEX document endpoints
 
 paths:
   /health:
@@ -69,7 +72,8 @@ paths:
         The endpoint automatically detects referrers using:
         1. OCI 1.1 Referrers API (`/v2/<name>/referrers/<digest>`)
         2. Referrers tag schema fallback (`sha256-<hash>` tags)
-        3. Docker BuildKit attestation manifest parsing
+        3. Cosign tag convention (`.sig` and `.att` suffixes)
+        4. Docker BuildKit attestation manifest parsing
       operationId: inspectImage
       tags:
         - Images
@@ -270,6 +274,72 @@ paths:
                   value:
                     success: false
                     error: "failed to fetch attestation manifest: MANIFEST_UNKNOWN"
+
+  /vex:
+    get:
+      summary: Fetch VEX document
+      description: |
+        Fetches and parses VEX (Vulnerability Exploitability eXchange) content
+        from an attestation manifest.
+
+        The endpoint:
+        1. Fetches the attestation manifest at the specified digest
+        2. Searches layers for VEX/OpenVEX predicate types
+        3. Extracts the VEX document from the in-toto attestation envelope
+        4. Returns the parsed VEX document with statements
+      operationId: fetchVEX
+      tags:
+        - VEX
+      parameters:
+        - name: repository
+          in: query
+          required: true
+          description: Full repository name
+          schema:
+            type: string
+          example: index.docker.io/library/alpine
+        - name: digest
+          in: query
+          required: true
+          description: Digest of the attestation manifest containing the VEX document
+          schema:
+            type: string
+            pattern: '^sha256:[a-f0-9]{64}$'
+          example: sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+      responses:
+        '200':
+          description: VEX document retrieved and parsed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/VEXDocument'
+        '400':
+          description: Invalid request (missing parameters)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: repository and digest parameters are required
+        '500':
+          description: Server error (VEX not found, parsing error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: no VEX layer found in attestation manifest
 
 components:
   schemas:
@@ -668,7 +738,7 @@ components:
         type:
           type: string
           description: Classified artifact type
-          enum: [sbom, signature, attestation, vulnerability-scan, artifact]
+          enum: [sbom, signature, attestation, vex, vulnerability-scan, artifact]
           example: sbom
         mediaType:
           type: string
@@ -695,3 +765,169 @@ components:
             in-toto.io/predicate-type: "https://spdx.dev/Document"
             vnd.docker.reference.digest: "sha256:6457d53fb..."
             vnd.docker.reference.type: "attestation-manifest"
+        signatureInfo:
+          $ref: '#/components/schemas/SignatureInfo'
+
+    SignatureInfo:
+      type: object
+      description: Cosign signature verification details extracted from the Sigstore certificate
+      properties:
+        issuer:
+          type: string
+          description: OIDC issuer from Sigstore certificate extension
+          example: "https://token.actions.githubusercontent.com"
+        identity:
+          type: string
+          description: Certificate identity (email or URI SAN)
+          example: "https://github.com/owner/repo/.github/workflows/release.yml@refs/heads/main"
+
+    VEXDocument:
+      type: object
+      description: |
+        OpenVEX document containing vulnerability exploitability statements.
+        Conforms to the OpenVEX specification (https://github.com/openvex/spec).
+      properties:
+        "@context":
+          type: string
+          description: OpenVEX context URI
+          example: "https://openvex.dev/ns/v0.2.0"
+        "@id":
+          type: string
+          description: Unique document identifier (IRI)
+          example: "https://example.com/vex/2024-01-15/1"
+        author:
+          type: string
+          description: Document author identifier
+          example: "Example Security Team <security@example.com>"
+        role:
+          type: string
+          description: Role of the document author
+        timestamp:
+          type: string
+          format: date-time
+          description: Document creation timestamp
+          example: "2024-01-15T10:00:00Z"
+        last_updated:
+          type: string
+          format: date-time
+          description: Document last updated timestamp
+          example: "2024-01-16T12:00:00Z"
+        version:
+          type: integer
+          description: Document version number
+          example: 2
+        tooling:
+          type: string
+          description: Tool used to generate the VEX document
+          example: "vexctl/0.2.0"
+        statements:
+          type: array
+          items:
+            $ref: '#/components/schemas/VEXStatement'
+
+    VEXStatement:
+      type: object
+      description: Individual VEX statement about a vulnerability
+      properties:
+        "@id":
+          type: string
+          description: Optional IRI identifying this statement
+        version:
+          type: integer
+          description: Statement version number
+        vulnerability:
+          $ref: '#/components/schemas/VEXVulnerability'
+        timestamp:
+          type: string
+          format: date-time
+          description: Statement-level timestamp
+        last_updated:
+          type: string
+          format: date-time
+          description: Statement last updated timestamp
+        products:
+          type: array
+          description: Products affected by this statement
+          items:
+            $ref: '#/components/schemas/VEXProduct'
+        status:
+          type: string
+          description: Vulnerability status
+          enum: [not_affected, affected, fixed, under_investigation]
+          example: not_affected
+        supplier:
+          type: string
+          description: Supplier of the product or subcomponent
+        status_notes:
+          type: string
+          description: Additional notes about the status determination
+          example: "govulncheck confirms this code path is not reachable"
+        justification:
+          type: string
+          description: Justification for the status (when not_affected)
+          enum: [component_not_present, vulnerable_code_not_present, vulnerable_code_not_in_execute_path, vulnerable_code_cannot_be_controlled_by_adversary, inline_mitigations_already_exist]
+          example: vulnerable_code_not_present
+        impact_statement:
+          type: string
+          description: Human-readable impact description (required for not_affected if no justification)
+          example: "The HTTP/2 rapid reset vulnerability does not affect this image."
+        action_statement:
+          type: string
+          description: Remediation actions (required for affected status)
+          example: "Update to version 2.0.1 or later."
+        action_statement_timestamp:
+          type: string
+          format: date-time
+          description: Timestamp when the action statement was issued
+
+    VEXVulnerability:
+      type: object
+      description: Vulnerability identification
+      required:
+        - name
+      properties:
+        "@id":
+          type: string
+          description: Optional IRI for the vulnerability
+        name:
+          type: string
+          description: Vulnerability identifier (e.g., CVE ID)
+          example: "CVE-2023-44487"
+        description:
+          type: string
+          description: Free form text describing the vulnerability
+        aliases:
+          type: array
+          items:
+            type: string
+          description: Other names under which the vulnerability is known
+
+    VEXProduct:
+      type: object
+      description: Product (component) identifier in a VEX statement
+      properties:
+        "@id":
+          type: string
+          description: Product identifier (typically a purl)
+          example: "pkg:oci/myimage@sha256:abc123"
+        identifiers:
+          $ref: '#/components/schemas/VEXIdentifiers'
+        hashes:
+          type: object
+          additionalProperties:
+            type: string
+          description: Cryptographic hashes of the component
+
+    VEXIdentifiers:
+      type: object
+      description: Software identifiers for a VEX product
+      properties:
+        purl:
+          type: string
+          description: Package URL
+        cpe22:
+          type: string
+          description: Common Platform Enumeration v2.2
+        cpe23:
+          type: string
+          description: Common Platform Enumeration v2.3

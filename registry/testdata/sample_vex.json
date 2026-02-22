@@ -1,0 +1,45 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://example.com/vex/2024-01-15/1",
+  "author": "Example Security Team <security@example.com>",
+  "role": "Document creator",
+  "timestamp": "2024-01-15T10:00:00Z",
+  "last_updated": "2024-01-16T12:00:00Z",
+  "version": 2,
+  "tooling": "vexctl/0.2.0",
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2023-44487",
+        "description": "HTTP/2 Rapid Reset Attack",
+        "aliases": ["GHSA-qppj-fm5r-hxr3"]
+      },
+      "products": [{"@id": "pkg:oci/myimage@sha256:abc123"}],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "status_notes": "govulncheck confirms this code path is not reachable",
+      "impact_statement": "The HTTP/2 rapid reset vulnerability does not affect this image because it does not include an HTTP/2 server implementation."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-0001"
+      },
+      "status": "fixed"
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-1234"
+      },
+      "status": "under_investigation",
+      "impact_statement": "Currently assessing the impact of this vulnerability on the image."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2024-5678"
+      },
+      "status": "affected",
+      "action_statement": "Update to version 2.0.1 or later to remediate this vulnerability.",
+      "impact_statement": "This vulnerability is present and a fix is being developed."
+    }
+  ]
+}

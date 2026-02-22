@@ -66,3 +66,18 @@ jobs:
 
       - name: Run govulncheck
         run: govulncheck ./...
+
+      - name: Generate OpenVEX document (preview)
+        if: always()
+        uses: ./.github/actions/generate-vex
+        with:
+          product: "pkg:oci/${{ github.event.repository.name }}@sha256:ci-preview"
+          author: "${{ github.repository_owner }}"
+
+      - name: Upload VEX document (preview)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vex-document-preview
+          path: vex.json
+          retention-days: 30

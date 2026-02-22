@@ -3,7 +3,11 @@ package registry
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
+	"encoding/asn1"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
@@ -123,12 +127,19 @@ type HistoryEntry struct {
 }
 
 type Referrer struct {
-	Type         string            `json:"type"`
-	MediaType    string            `json:"mediaType"`
-	Digest       string            `json:"digest"`
-	Size         int64             `json:"size"`
-	ArtifactType string            `json:"artifactType"`
-	Annotations  map[string]string `json:"annotations,omitempty"`
+	Type          string            `json:"type"`
+	MediaType     string            `json:"mediaType"`
+	Digest        string            `json:"digest"`
+	Size          int64             `json:"size"`
+	ArtifactType  string            `json:"artifactType"`
+	Annotations   map[string]string `json:"annotations,omitempty"`
+	SignatureInfo *SignatureInfo     `json:"signatureInfo,omitempty"`
+}
+
+// SignatureInfo contains cosign signature verification details.
+type SignatureInfo struct {
+	Issuer   string `json:"issuer"`
+	Identity string `json:"identity"`
 }
 
 // Client handles OCI registry operations
@@ -348,6 +359,42 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 	if err := g.Wait(); err != nil {
 		logVerbose("Error fetching referrers: %v", err)
 		// Continue anyway, some referrers may have been fetched successfully
+	}
+
+	// Discover cosign-tagged artifacts (.sig and .att tags)
+	// Cosign stores signatures and attestations using a tag naming convention:
+	//   sha256-<hex>.sig — cosign signatures
+	//   sha256-<hex>.att — cosign attestations (may contain VEX, provenance, etc.)
+	cosignDigests := []string{desc.Digest.String()}
+	if info.ImageIndex != nil {
+		for _, m := range info.ImageIndex.Manifests {
+			// Only check real platform manifests, not attestation manifests (unknown/unknown)
+			if m.Platform != nil && m.Annotations["vnd.docker.reference.type"] == "" {
+				cosignDigests = append(cosignDigests, m.Digest)
+			}
+		}
+	}
+	for _, d := range cosignDigests {
+		cosignRefs, err := c.fetchCosignTagArtifacts(ref, d)
+		if err != nil {
+			logVerbose("Error fetching cosign tag artifacts for %s: %v", truncateDigest(d), err)
+			continue
+		}
+		for _, r := range cosignRefs {
+			addReferrer(r)
+		}
+	}
+
+	// Enrich signature referrers with certificate info
+	for i := range referrers {
+		if referrers[i].Type == "signature" {
+			sigInfo, err := c.extractSignatureInfo(ref, referrers[i].Digest)
+			if err != nil {
+				logVerbose("Failed to extract signature info for %s: %v", truncateDigest(referrers[i].Digest), err)
+				continue
+			}
+			referrers[i].SignatureInfo = sigInfo
+		}
 	}
 
 	info.Referrers = referrers
@@ -856,6 +903,67 @@ func (c *Client) fetchReferrersViaAPI(repo name.Repository, digest string) ([]Re
 	return referrers, nil
 }
 
+// fetchCosignTagArtifacts discovers cosign-style tagged artifacts (.sig and .att suffixes).
+// Cosign uses a tag naming convention: sha256-<hex>.sig for signatures, sha256-<hex>.att for attestations.
+func (c *Client) fetchCosignTagArtifacts(ref name.Reference, digest string) ([]Referrer, error) {
+	var allReferrers []Referrer
+	repo := ref.Context()
+
+	digestParts := strings.Split(digest, ":")
+	if len(digestParts) != 2 {
+		return nil, nil
+	}
+
+	// Check for cosign signature tag (.sig)
+	sigTag := fmt.Sprintf("sha256-%s.sig", digestParts[1])
+	logVerbose("Checking for cosign signature tag: %s:%s", repo.String(), sigTag)
+
+	sigTagRef, err := name.NewTag(fmt.Sprintf("%s:%s", repo.String(), sigTag))
+	if err == nil {
+		sigDesc, err := remote.Get(sigTagRef, remote.WithAuthFromKeychain(c.keychain))
+		if err == nil {
+			logVerbose("Found cosign signature manifest at tag %s", sigTag)
+			allReferrers = append(allReferrers, Referrer{
+				Type:         "signature",
+				MediaType:    string(sigDesc.MediaType),
+				Digest:       sigDesc.Digest.String(),
+				Size:         sigDesc.Size,
+				ArtifactType: "application/vnd.dev.cosign.simplesigning.v1+json",
+				Annotations: map[string]string{
+					"vnd.docker.reference.digest": digest,
+				},
+			})
+		} else {
+			logVerbose("No cosign signature tag found (this is normal)")
+		}
+	}
+
+	// Check for cosign attestation tag (.att)
+	attTag := fmt.Sprintf("sha256-%s.att", digestParts[1])
+	logVerbose("Checking for cosign attestation tag: %s:%s", repo.String(), attTag)
+
+	attTagRef, err := name.NewTag(fmt.Sprintf("%s:%s", repo.String(), attTag))
+	if err == nil {
+		attDesc, err := remote.Get(attTagRef, remote.WithAuthFromKeychain(c.keychain))
+		if err == nil {
+			logVerbose("Found cosign attestation manifest at tag %s", attTag)
+			// Extract individual attestation layers (may contain VEX, provenance, etc.)
+			attReferrers, err := c.extractAttestationInfo(ref, attDesc.Digest.String(), attDesc.Size, map[string]string{
+				"vnd.docker.reference.digest": digest,
+			})
+			if err != nil {
+				logVerbose("Failed to extract cosign attestation info: %v", err)
+			} else {
+				allReferrers = append(allReferrers, attReferrers...)
+			}
+		} else {
+			logVerbose("No cosign attestation tag found (this is normal)")
+		}
+	}
+
+	return allReferrers, nil
+}
+
 // FetchSBOMContent retrieves the actual SBOM content from an attestation manifest
 func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, string, error) {
 	logVerbose("Fetching SBOM content from %s@%s", repository, digest)
@@ -952,6 +1060,173 @@ func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, str
 	return nil, "", fmt.Errorf("no SBOM layer found in attestation manifest")
 }
 
+// VEXDocument represents a parsed OpenVEX document.
+// See https://github.com/openvex/spec for the full specification.
+type VEXDocument struct {
+	Context     string         `json:"@context"`
+	ID          string         `json:"@id"`
+	Author      string         `json:"author"`
+	Role        string         `json:"role,omitempty"`
+	Timestamp   string         `json:"timestamp"`
+	LastUpdated string         `json:"last_updated,omitempty"`
+	Version     int            `json:"version,omitempty"`
+	Tooling     string         `json:"tooling,omitempty"`
+	Statements  []VEXStatement `json:"statements"`
+}
+
+// VEXStatement represents a single VEX statement.
+type VEXStatement struct {
+	ID                       string           `json:"@id,omitempty"`
+	Version                  int              `json:"version,omitempty"`
+	Vulnerability            VEXVulnerability `json:"vulnerability"`
+	Timestamp                string           `json:"timestamp,omitempty"`
+	LastUpdated              string           `json:"last_updated,omitempty"`
+	Products                 []VEXProduct     `json:"products,omitempty"`
+	Status                   string           `json:"status"`
+	Supplier                 string           `json:"supplier,omitempty"`
+	StatusNotes              string           `json:"status_notes,omitempty"`
+	Justification            string           `json:"justification,omitempty"`
+	ImpactStatement          string           `json:"impact_statement,omitempty"`
+	ActionStatement          string           `json:"action_statement,omitempty"`
+	ActionStatementTimestamp string           `json:"action_statement_timestamp,omitempty"`
+}
+
+// VEXVulnerability identifies the vulnerability in a VEX statement.
+type VEXVulnerability struct {
+	ID          string   `json:"@id,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Aliases     []string `json:"aliases,omitempty"`
+}
+
+// VEXProduct identifies a product (component) in a VEX statement.
+type VEXProduct struct {
+	ID          string          `json:"@id,omitempty"`
+	Identifiers *VEXIdentifiers `json:"identifiers,omitempty"`
+	Hashes      map[string]string `json:"hashes,omitempty"`
+}
+
+// VEXIdentifiers contains software identifiers for a VEX product.
+type VEXIdentifiers struct {
+	PURL  string `json:"purl,omitempty"`
+	CPE22 string `json:"cpe22,omitempty"`
+	CPE23 string `json:"cpe23,omitempty"`
+}
+
+// FetchVEXContent retrieves and parses VEX content from an attestation manifest.
+func (c *Client) FetchVEXContent(repository string, digest string) (*VEXDocument, error) {
+	logVerbose("Fetching VEX content from %s@%s", repository, digest)
+
+	ref, err := name.NewDigest(fmt.Sprintf("%s@%s", repository, digest))
+	if err != nil {
+		return nil, fmt.Errorf("invalid reference: %w", err)
+	}
+
+	// First, try fetching as a manifest (the digest might point to an attestation manifest)
+	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(c.keychain))
+	if err == nil {
+		// Successfully fetched as manifest — iterate layers to find VEX
+		img, imgErr := desc.Image()
+		if imgErr == nil {
+			manifest, manErr := img.Manifest()
+			if manErr == nil {
+				logVerbose("Searching for VEX layer in %d layers", len(manifest.Layers))
+				for _, layer := range manifest.Layers {
+					predicateType := layer.Annotations["in-toto.io/predicate-type"]
+					if predicateType == "" {
+						predicateType = layer.Annotations["predicateType"]
+					}
+					predicateLower := strings.ToLower(predicateType)
+					if strings.Contains(predicateLower, "vex") || strings.Contains(predicateLower, "openvex") {
+						logVerbose("Found VEX layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), predicateType)
+						return c.fetchAndParseVEXBlob(ref.Context(), layer.Digest.String())
+					}
+				}
+			}
+		}
+	}
+
+	// If manifest fetch failed or no VEX layer found, try as a blob directly.
+	// This handles the case where the digest is a layer blob (from extractAttestationInfo).
+	logVerbose("Trying to fetch VEX as blob at %s", truncateDigest(digest))
+	return c.fetchAndParseVEXBlob(ref.Context(), digest)
+}
+
+// fetchAndParseVEXBlob fetches a blob by digest and parses it as a VEX document,
+// handling both raw VEX JSON and in-toto/DSSE wrapped attestations.
+func (c *Client) fetchAndParseVEXBlob(repo name.Repository, digest string) (*VEXDocument, error) {
+	blobRef, err := name.NewDigest(fmt.Sprintf("%s@%s", repo.String(), digest))
+	if err != nil {
+		return nil, fmt.Errorf("invalid blob reference: %w", err)
+	}
+
+	blob, err := remote.Layer(blobRef, remote.WithAuthFromKeychain(c.keychain))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch VEX blob: %w", err)
+	}
+
+	reader, err := blob.Compressed()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read VEX blob: %w", err)
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read VEX data: %w", err)
+	}
+
+	logVerbose("Read %d bytes from VEX blob", len(data))
+
+	// Try to parse as in-toto/DSSE attestation and extract the predicate
+	var attestation struct {
+		Type          string          `json:"_type"`
+		PredicateType string          `json:"predicateType"`
+		Predicate     json.RawMessage `json:"predicate"`
+		// DSSE envelope fields
+		PayloadType string `json:"payloadType"`
+		Payload     string `json:"payload"`
+	}
+
+	var vexData []byte
+	if err := json.Unmarshal(data, &attestation); err == nil {
+		if len(attestation.Predicate) > 0 {
+			// Standard in-toto format with direct predicate
+			logVerbose("Extracted VEX from in-toto attestation predicate")
+			vexData = attestation.Predicate
+		} else if attestation.Payload != "" {
+			// DSSE envelope — payload is base64-encoded in-toto statement
+			logVerbose("Detected DSSE envelope, decoding payload")
+			decoded, decErr := base64.StdEncoding.DecodeString(attestation.Payload)
+			if decErr != nil {
+				return nil, fmt.Errorf("failed to decode DSSE payload: %w", decErr)
+			}
+			// Parse the inner in-toto statement
+			var inner struct {
+				Predicate json.RawMessage `json:"predicate"`
+			}
+			if err := json.Unmarshal(decoded, &inner); err == nil && len(inner.Predicate) > 0 {
+				vexData = inner.Predicate
+			} else {
+				vexData = decoded
+			}
+		} else {
+			// Try raw data as VEX document
+			vexData = data
+		}
+	} else {
+		vexData = data
+	}
+
+	var vexDoc VEXDocument
+	if err := json.Unmarshal(vexData, &vexDoc); err != nil {
+		return nil, fmt.Errorf("failed to parse VEX document: %w", err)
+	}
+
+	logVerbose("Parsed VEX document: %d statements", len(vexDoc.Statements))
+	return &vexDoc, nil
+}
+
 // extractAttestationInfo fetches a Docker BuildKit attestation manifest and extracts SBOM/attestation info
 func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size int64, indexAnnotations map[string]string) ([]Referrer, error) {
 	var referrers []Referrer
@@ -988,8 +1263,13 @@ func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size 
 	// Each layer gets its own referrer with its own digest to avoid deduplication
 	for _, layer := range manifest.Layers {
 		predicateType := ""
+		// Check both in-toto standard annotation and cosign's annotation key
 		if pt, ok := layer.Annotations["in-toto.io/predicate-type"]; ok {
 			predicateType = pt
+		} else if pt, ok := layer.Annotations["predicateType"]; ok {
+			predicateType = pt
+		}
+		if predicateType != "" {
 			logVerbose("  Layer %s has predicate-type: %s", truncateDigest(layer.Digest.String()), predicateType)
 		}
 
@@ -1017,6 +1297,26 @@ func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size 
 				Annotations:  annotations,
 			})
 			logVerbose("  Found SBOM layer: predicate=%s, digest=%s, size=%d", predicateType, truncateDigest(layer.Digest.String()), layer.Size)
+		}
+
+		// Check for VEX predicate types (must come before provenance/attestation)
+		if strings.Contains(predicateLower, "vex") ||
+			strings.Contains(predicateLower, "openvex") {
+			annotations := make(map[string]string)
+			for k, v := range indexAnnotations {
+				annotations[k] = v
+			}
+			annotations["in-toto.io/predicate-type"] = predicateType
+
+			referrers = append(referrers, Referrer{
+				Type:         "vex",
+				MediaType:    string(layer.MediaType),
+				Digest:       layer.Digest.String(),
+				Size:         layer.Size,
+				ArtifactType: predicateType,
+				Annotations:  annotations,
+			})
+			logVerbose("  Found VEX layer: predicate=%s, digest=%s, size=%d", predicateType, truncateDigest(layer.Digest.String()), layer.Size)
 		}
 
 		// Check for provenance/attestation predicate types
@@ -1058,6 +1358,93 @@ func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size 
 	return referrers, nil
 }
 
+// Sigstore OIDC issuer OIDs
+var (
+	oidSigstoreIssuerV1 = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 1}
+	oidSigstoreIssuerV2 = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}
+)
+
+// extractSignatureInfo extracts cosign signature verification details from
+// the certificate embedded in the signature manifest annotation.
+func (c *Client) extractSignatureInfo(ref name.Reference, digest string) (*SignatureInfo, error) {
+	repo := ref.Context()
+	manifestRef, err := name.NewDigest(fmt.Sprintf("%s@%s", repo.String(), digest))
+	if err != nil {
+		return nil, fmt.Errorf("invalid manifest reference: %w", err)
+	}
+
+	desc, err := remote.Get(manifestRef, remote.WithAuthFromKeychain(c.keychain))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch signature manifest: %w", err)
+	}
+
+	// Parse manifest to get layers/annotations
+	var manifestData struct {
+		Layers []struct {
+			Annotations map[string]string `json:"annotations"`
+		} `json:"layers"`
+	}
+	if err := json.Unmarshal(desc.Manifest, &manifestData); err != nil {
+		return nil, fmt.Errorf("failed to parse signature manifest: %w", err)
+	}
+
+	// Look for the cosign certificate annotation on layers
+	var certPEM string
+	for _, layer := range manifestData.Layers {
+		if cert, ok := layer.Annotations["dev.sigstore.cosign/certificate"]; ok {
+			certPEM = cert
+			break
+		}
+	}
+
+	if certPEM == "" {
+		logVerbose("No cosign certificate found in signature manifest %s", truncateDigest(digest))
+		return nil, nil
+	}
+
+	// Parse PEM certificate
+	block, _ := pem.Decode([]byte(certPEM))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM certificate")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
+	}
+
+	info := &SignatureInfo{}
+
+	// Extract identity from SAN (email or URI)
+	if len(cert.EmailAddresses) > 0 {
+		info.Identity = cert.EmailAddresses[0]
+	} else if len(cert.URIs) > 0 {
+		info.Identity = cert.URIs[0].String()
+	}
+
+	// Extract OIDC issuer from Sigstore extension
+	for _, ext := range cert.Extensions {
+		if ext.Id.Equal(oidSigstoreIssuerV1) || ext.Id.Equal(oidSigstoreIssuerV2) {
+			// The value is an ASN.1 UTF8String
+			var issuer string
+			if _, err := asn1.Unmarshal(ext.Value, &issuer); err != nil {
+				// Try as raw string
+				info.Issuer = string(ext.Value)
+			} else {
+				info.Issuer = issuer
+			}
+			break
+		}
+	}
+
+	if info.Identity == "" && info.Issuer == "" {
+		return nil, nil
+	}
+
+	logVerbose("Extracted signature info: identity=%s, issuer=%s", info.Identity, info.Issuer)
+	return info, nil
+}
+
 func classifyArtifactType(artifactType string, annotations map[string]string) string {
 	artifactTypeLower := strings.ToLower(artifactType)
 
@@ -1069,19 +1456,37 @@ func classifyArtifactType(artifactType string, annotations map[string]string) st
 		logVerbose("Classified artifact as 'sbom' based on artifactType: %s", artifactType)
 		return "sbom"
 	}
-	if strings.Contains(artifactTypeLower, "attestation") || strings.Contains(artifactTypeLower, "in-toto") || strings.Contains(artifactTypeLower, "provenance") {
-		logVerbose("Classified artifact as 'attestation' based on artifactType: %s", artifactType)
-		return "attestation"
+	// VEX check must come before attestation to avoid classifying VEX as generic attestation
+	if strings.Contains(artifactTypeLower, "vex") || strings.Contains(artifactTypeLower, "openvex") {
+		logVerbose("Classified artifact as 'vex' based on artifactType: %s", artifactType)
+		return "vex"
 	}
 	if strings.Contains(artifactTypeLower, "vuln") || strings.Contains(artifactTypeLower, "scan") {
 		logVerbose("Classified artifact as 'vulnerability-scan' based on artifactType: %s", artifactType)
 		return "vulnerability-scan"
 	}
 
-	// Check annotations for predicate type (in-toto attestations)
-	if predType, ok := annotations["in-toto.io/predicate-type"]; ok {
-		logVerbose("Checking in-toto predicate type annotation: %s", predType)
+	// Check annotations for predicate type before generic envelope type checks.
+	// In-toto/DSSE envelope types need annotation inspection to determine the specific type.
+	// Also check Sigstore bundle predicateType annotation.
+	predType := annotations["in-toto.io/predicate-type"]
+	if predType == "" {
+		predType = annotations["dev.sigstore.bundle.predicateType"]
+	}
+	if predType == "" {
+		predType = annotations["predicateType"]
+	}
+	if predType != "" {
+		logVerbose("Checking predicate type annotation: %s", predType)
 		predTypeLower := strings.ToLower(predType)
+		if strings.Contains(predTypeLower, "vex") || strings.Contains(predTypeLower, "openvex") {
+			logVerbose("Classified artifact as 'vex' based on predicate-type annotation")
+			return "vex"
+		}
+		if strings.Contains(predTypeLower, "sbom") || strings.Contains(predTypeLower, "cyclonedx") || strings.Contains(predTypeLower, "spdx") {
+			logVerbose("Classified artifact as 'sbom' based on predicate-type annotation")
+			return "sbom"
+		}
 		if strings.Contains(predTypeLower, "provenance") || strings.Contains(predTypeLower, "slsa") {
 			logVerbose("Classified artifact as 'attestation' based on predicate-type annotation")
 			return "attestation"
@@ -1090,10 +1495,21 @@ func classifyArtifactType(artifactType string, annotations map[string]string) st
 			logVerbose("Classified artifact as 'vulnerability-scan' based on predicate-type annotation")
 			return "vulnerability-scan"
 		}
-		if strings.Contains(predTypeLower, "sbom") || strings.Contains(predTypeLower, "cyclonedx") || strings.Contains(predTypeLower, "spdx") {
-			logVerbose("Classified artifact as 'sbom' based on predicate-type annotation")
-			return "sbom"
+	}
+
+	// Sigstore bundle artifact type — classify based on content annotation
+	if strings.Contains(artifactTypeLower, "sigstore.bundle") {
+		if content, ok := annotations["dev.sigstore.bundle.content"]; ok && strings.Contains(strings.ToLower(content), "message-signature") {
+			logVerbose("Classified Sigstore bundle as 'signature' based on content annotation")
+			return "signature"
 		}
+		logVerbose("Classified Sigstore bundle as 'attestation' based on artifactType: %s", artifactType)
+		return "attestation"
+	}
+
+	if strings.Contains(artifactTypeLower, "attestation") || strings.Contains(artifactTypeLower, "in-toto") || strings.Contains(artifactTypeLower, "provenance") {
+		logVerbose("Classified artifact as 'attestation' based on artifactType: %s", artifactType)
+		return "attestation"
 	}
 
 	logVerbose("Could not classify artifact type '%s', defaulting to 'artifact'", artifactType)
