@@ -92,6 +92,14 @@ Follow established standards and conventions. When in doubt, look up the relevan
 - Only introduce abstractions (helpers, utilities, shared functions) when at least two occurrences of similar code exist
 - Prefer inline, straightforward code over premature generalization
 
+### DRY / Package Reuse
+
+- Always review existing project dependencies (`go.mod`) for functionality before writing custom code
+- Search public packages (e.g. Go standard library, well-maintained open-source libraries) for established solutions
+- Prefer using library APIs over reimplementing functionality — even if the library API requires a slight adaptation
+- Only write custom code when no suitable library exists or the library would add disproportionate complexity/dependencies
+- When adding a new dependency, prefer libraries with zero/minimal transitive dependencies
+
 ### Imports
 
 - Remove unused imports immediately
