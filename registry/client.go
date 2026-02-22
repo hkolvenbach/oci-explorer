@@ -818,6 +818,28 @@ func (c *Client) fetchCosignTagArtifacts(ref name.Reference, digest string) ([]R
 	return allReferrers, nil
 }
 
+// InTotoAttestation represents an in-toto attestation envelope, covering both
+// standard in-toto statements and DSSE envelopes.
+type InTotoAttestation struct {
+	Type          string          `json:"_type"`
+	Subject       json.RawMessage `json:"subject"`
+	PredicateType string          `json:"predicateType"`
+	Predicate     json.RawMessage `json:"predicate"`
+	// DSSE envelope fields
+	PayloadType string `json:"payloadType"`
+	Payload     string `json:"payload"`
+}
+
+// findLayerByPredicate returns the first layer descriptor whose predicate type matches any keyword.
+func findLayerByPredicate(layers []v1.Descriptor, keywords ...string) *v1.Descriptor {
+	for i, layer := range layers {
+		if containsAny(getPredicateType(layer.Annotations), keywords...) {
+			return &layers[i]
+		}
+	}
+	return nil
+}
+
 // FetchSBOMContent retrieves the actual SBOM content from an attestation manifest
 func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, string, error) {
 	logVerbose("Fetching SBOM content from %s@%s", repository, digest)
@@ -846,65 +868,45 @@ func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, str
 
 	logVerbose("Searching for SBOM layer in %d layers", len(manifest.Layers))
 
-	// Find the SBOM layer
-	for _, layer := range manifest.Layers {
-		predicateType := getPredicateType(layer.Annotations)
-
-		if containsAny(predicateType, "spdx", "cyclonedx", "sbom", "syft") {
-
-			logVerbose("Found SBOM layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), predicateType)
-
-			// Fetch the layer blob
-			repo := manifestRef.Context()
-			layerRef, err := name.NewDigest(fmt.Sprintf("%s@%s", repo.String(), layer.Digest.String()))
-			if err != nil {
-				return nil, "", fmt.Errorf("invalid layer reference: %w", err)
-			}
-
-			blob, err := remote.Layer(layerRef, remote.WithAuthFromKeychain(c.keychain))
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to fetch layer: %w", err)
-			}
-
-			reader, err := blob.Compressed()
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to read layer: %w", err)
-			}
-			defer reader.Close()
-
-			// Read the attestation data
-			attestationData, err := io.ReadAll(reader)
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to read attestation data: %w", err)
-			}
-
-			logVerbose("Read %d bytes from SBOM layer", len(attestationData))
-
-			// Try to parse as in-toto attestation and extract the predicate
-			var attestation struct {
-				Type          string          `json:"_type"`
-				Subject       json.RawMessage `json:"subject"`
-				PredicateType string          `json:"predicateType"`
-				Predicate     json.RawMessage `json:"predicate"`
-			}
-
-			if err := json.Unmarshal(attestationData, &attestation); err == nil && len(attestation.Predicate) > 0 {
-				// Return just the predicate (the actual SBOM)
-				logVerbose("Extracted SBOM predicate from in-toto attestation")
-				// Pretty print the JSON
-				var prettyJSON bytes.Buffer
-				if err := json.Indent(&prettyJSON, attestation.Predicate, "", "  "); err == nil {
-					return prettyJSON.Bytes(), "application/json", nil
-				}
-				return attestation.Predicate, "application/json", nil
-			}
-
-			// Return raw data if not in-toto format
-			return attestationData, "application/json", nil
-		}
+	layer := findLayerByPredicate(manifest.Layers, "spdx", "cyclonedx", "sbom", "syft")
+	if layer == nil {
+		return nil, "", fmt.Errorf("no SBOM layer found in attestation manifest")
 	}
 
-	return nil, "", fmt.Errorf("no SBOM layer found in attestation manifest")
+	logVerbose("Found SBOM layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), getPredicateType(layer.Annotations))
+
+	// Fetch the layer blob using the image we already have
+	blob, err := img.LayerByDigest(layer.Digest)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch layer: %w", err)
+	}
+
+	reader, err := blob.Compressed()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read layer: %w", err)
+	}
+	defer reader.Close()
+
+	attestationData, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read attestation data: %w", err)
+	}
+
+	logVerbose("Read %d bytes from SBOM layer", len(attestationData))
+
+	// Try to parse as in-toto attestation and extract the predicate
+	var attestation InTotoAttestation
+	if err := json.Unmarshal(attestationData, &attestation); err == nil && len(attestation.Predicate) > 0 {
+		logVerbose("Extracted SBOM predicate from in-toto attestation")
+		var prettyJSON bytes.Buffer
+		if err := json.Indent(&prettyJSON, attestation.Predicate, "", "  "); err == nil {
+			return prettyJSON.Bytes(), "application/json", nil
+		}
+		return attestation.Predicate, "application/json", nil
+	}
+
+	// Return raw data if not in-toto format
+	return attestationData, "application/json", nil
 }
 
 // VEXDocument represents a parsed OpenVEX document.
@@ -972,18 +974,14 @@ func (c *Client) FetchVEXContent(repository string, digest string) (*VEXDocument
 	// First, try fetching as a manifest (the digest might point to an attestation manifest)
 	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(c.keychain))
 	if err == nil {
-		// Successfully fetched as manifest — iterate layers to find VEX
 		img, imgErr := desc.Image()
 		if imgErr == nil {
 			manifest, manErr := img.Manifest()
 			if manErr == nil {
 				logVerbose("Searching for VEX layer in %d layers", len(manifest.Layers))
-				for _, layer := range manifest.Layers {
-					predicateType := getPredicateType(layer.Annotations)
-					if containsAny(predicateType, "vex", "openvex") {
-						logVerbose("Found VEX layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), predicateType)
-						return c.fetchAndParseVEXBlob(ref.Context(), layer.Digest.String())
-					}
+				if layer := findLayerByPredicate(manifest.Layers, "vex", "openvex"); layer != nil {
+					logVerbose("Found VEX layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), getPredicateType(layer.Annotations))
+					return c.fetchAndParseVEXBlob(ref.Context(), layer.Digest.String())
 				}
 			}
 		}
@@ -1022,15 +1020,7 @@ func (c *Client) fetchAndParseVEXBlob(repo name.Repository, digest string) (*VEX
 	logVerbose("Read %d bytes from VEX blob", len(data))
 
 	// Try to parse as in-toto/DSSE attestation and extract the predicate
-	var attestation struct {
-		Type          string          `json:"_type"`
-		PredicateType string          `json:"predicateType"`
-		Predicate     json.RawMessage `json:"predicate"`
-		// DSSE envelope fields
-		PayloadType string `json:"payloadType"`
-		Payload     string `json:"payload"`
-	}
-
+	var attestation InTotoAttestation
 	var vexData []byte
 	if err := json.Unmarshal(data, &attestation); err == nil {
 		if len(attestation.Predicate) > 0 {
