@@ -556,14 +556,14 @@
                     <!-- Left Column -->
                     <div>
                         ${data.imageIndex ? renderImageIndexSection(data.imageIndex, selectedPlatform) : ''}
-                        ${data.manifest ? renderLayersSection(data.manifest.layers) : ''}
+                        ${renderReferrersSection(filteredReferrers, data.referrers?.length || 0)}
                         ${data.manifest?.annotations ? renderAnnotationsSection(data.manifest.annotations) : ''}
                     </div>
 
                     <!-- Right Column -->
                     <div>
                         ${selectedConfig ? renderConfigSection(selectedConfig, selectedPlatformName) : ''}
-                        ${renderReferrersSection(filteredReferrers, data.referrers?.length || 0)}
+                        ${data.manifest ? renderLayersSection(data.manifest.layers) : ''}
                         ${renderTagsSection(data.tags || [])}
                     </div>
                 </div>
@@ -888,6 +888,39 @@
             }
         }
 
+        async function downloadVEX(repository, digest, event) {
+            event.stopPropagation();
+            const btn = event.currentTarget;
+            const originalContent = btn.innerHTML;
+
+            btn.innerHTML = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/api/vex?repository=${encodeURIComponent(repository)}&digest=${encodeURIComponent(digest)}`);
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || 'Failed to fetch VEX');
+                }
+
+                const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `vex-${digest.substring(7, 19)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            } catch (error) {
+                alert('Error downloading VEX: ' + error.message);
+            } finally {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }
+        }
+
         async function fetchVEX(repository, digest, index, event) {
             event.stopPropagation();
             const btn = event.currentTarget;
@@ -1072,6 +1105,13 @@
                                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
                                                         </svg>
                                                         View
+                                                    </button>
+                                                    <button onclick="downloadVEX('${currentData?.repository}', '${r.digest}', event)"
+                                                        class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                                        </svg>
+                                                        Download
                                                     </button>
                                                 ` : ''}
                                                 <div class="text-sm text-slate-400">${formatBytes(r.size)}</div>
@@ -1279,16 +1319,19 @@
 
             // Group referrers by their target platform digest using vnd.docker.reference.digest annotation
             const referrersByPlatform = {};
-            const globalReferrers = []; // Referrers that apply to all platforms (no reference digest)
+            const globalReferrers = []; // Referrers that apply to all platforms or attach to the index itself
+            const platformDigests = new Set(platforms.map(p => p.digest));
 
             referrers.forEach(r => {
                 const refDigest = r.annotations?.['vnd.docker.reference.digest'];
-                if (refDigest) {
+                if (refDigest && platformDigests.has(refDigest)) {
+                    // Referrer points to a specific platform manifest
                     if (!referrersByPlatform[refDigest]) {
                         referrersByPlatform[refDigest] = [];
                     }
                     referrersByPlatform[refDigest].push(r);
                 } else {
+                    // No reference digest, or points to the index digest — treat as global
                     globalReferrers.push(r);
                 }
             });
@@ -1322,7 +1365,7 @@
                     signature: { fill: '#f59e0b', text: 'Signature' },
                     sbom: { fill: '#06b6d4', text: 'SBOM' },
                     attestation: { fill: '#8b5cf6', text: 'Attestation' },
-                    vex: { fill: '#10b981', text: 'VEX' },
+                    vex: { fill: '#2dd4bf', text: 'VEX' },
                     artifact: { fill: '#64748b', text: 'Artifact' }
                 };
                 return colors[type] || colors.artifact;
@@ -1543,8 +1586,10 @@
                             <text x="322" y="22" fill="#94a3b8" font-size="10">SBOM</text>
                             <rect x="370" y="10" width="16" height="16" rx="2" fill="#8b5cf6" fill-opacity="0.5"/>
                             <text x="392" y="22" fill="#94a3b8" font-size="10">Attestation</text>
-                            <rect x="470" y="10" width="16" height="16" rx="2" fill="#10b981"/>
+                            <rect x="470" y="10" width="16" height="16" rx="2" fill="#2dd4bf"/>
                             <text x="492" y="22" fill="#94a3b8" font-size="10">VEX</text>
+                            <rect x="530" y="10" width="16" height="16" rx="2" fill="#f59e0b"/>
+                            <text x="552" y="22" fill="#94a3b8" font-size="10">Signature</text>
                         </g>
                             </g>
                         </svg>
