@@ -1259,8 +1259,18 @@ func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size 
 
 	logVerbose("Attestation manifest has %d layers", len(manifest.Layers))
 
-	// Check each layer for SBOM or attestation info
-	// Each layer gets its own referrer with its own digest to avoid deduplication
+	referrers = buildReferrersFromAttestationLayers(manifest, digest, size, indexAnnotations)
+
+	return referrers, nil
+}
+
+// buildReferrersFromAttestationLayers processes layers from a BuildKit attestation manifest
+// and creates Referrer entries for SBOM and provenance layers.
+// The attestationDigest must be the digest of the attestation manifest itself (not a layer digest),
+// because FetchSBOMContent needs to fetch the manifest by digest to find SBOM layers within it.
+func buildReferrersFromAttestationLayers(manifest *v1.Manifest, attestationDigest string, manifestSize int64, indexAnnotations map[string]string) []Referrer {
+	var referrers []Referrer
+
 	for _, layer := range manifest.Layers {
 		predicateType := ""
 		// Check both in-toto standard annotation and cosign's annotation key
@@ -1280,23 +1290,25 @@ func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size 
 			strings.Contains(predicateLower, "cyclonedx") ||
 			strings.Contains(predicateLower, "sbom") ||
 			strings.Contains(predicateLower, "syft") {
-			// Create a referrer for this SBOM layer
-			// Use the layer digest (not the manifest digest) to ensure uniqueness
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
 			}
 			annotations["in-toto.io/predicate-type"] = predicateType
 
+			// Use the attestation manifest digest (not the layer digest) so that
+			// FetchSBOMContent can fetch the manifest and find the SBOM layer within it.
+			// Using the layer digest would cause MANIFEST_UNKNOWN errors because
+			// layer blobs are not manifests.
 			referrers = append(referrers, Referrer{
 				Type:         "sbom",
 				MediaType:    string(layer.MediaType),
-				Digest:       layer.Digest.String(), // Use layer digest for uniqueness
+				Digest:       attestationDigest,
 				Size:         layer.Size,
 				ArtifactType: predicateType,
 				Annotations:  annotations,
 			})
-			logVerbose("  Found SBOM layer: predicate=%s, digest=%s, size=%d", predicateType, truncateDigest(layer.Digest.String()), layer.Size)
+			logVerbose("  Found SBOM layer: predicate=%s, digest=%s, size=%d", predicateType, truncateDigest(attestationDigest), layer.Size)
 		}
 
 		// Check for VEX predicate types (must come before provenance/attestation)
@@ -1322,23 +1334,22 @@ func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size 
 		// Check for provenance/attestation predicate types
 		if strings.Contains(predicateLower, "provenance") ||
 			strings.Contains(predicateLower, "slsa") {
-			// Create a referrer for this attestation/provenance layer
-			// Use the layer digest (not the manifest digest) to ensure uniqueness
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
 			}
 			annotations["in-toto.io/predicate-type"] = predicateType
 
+			// Use the attestation manifest digest for the same reason as above.
 			referrers = append(referrers, Referrer{
 				Type:         "attestation",
 				MediaType:    string(layer.MediaType),
-				Digest:       layer.Digest.String(), // Use layer digest for uniqueness
+				Digest:       attestationDigest,
 				Size:         layer.Size,
 				ArtifactType: predicateType,
 				Annotations:  annotations,
 			})
-			logVerbose("  Found provenance attestation layer: predicate=%s, digest=%s, size=%d", predicateType, truncateDigest(layer.Digest.String()), layer.Size)
+			logVerbose("  Found provenance attestation layer: predicate=%s, digest=%s, size=%d", predicateType, truncateDigest(attestationDigest), layer.Size)
 		}
 	}
 
@@ -1348,14 +1359,14 @@ func (c *Client) extractAttestationInfo(ref name.Reference, digest string, size 
 		referrers = append(referrers, Referrer{
 			Type:         "attestation",
 			MediaType:    string(manifest.MediaType),
-			Digest:       digest,
-			Size:         size,
+			Digest:       attestationDigest,
+			Size:         manifestSize,
 			ArtifactType: "attestation",
 			Annotations:  indexAnnotations,
 		})
 	}
 
-	return referrers, nil
+	return referrers
 }
 
 // Sigstore OIDC issuer OIDs

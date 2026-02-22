@@ -17,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 )
 
 // TestClassifyArtifactType tests the artifact type classification logic
@@ -958,6 +960,58 @@ func TestPlatformReferrerAnnotations(t *testing.T) {
 	}
 
 	t.Logf("Test completed: Referrers are correctly annotated with platform digests")
+}
+
+// TestSBOMReferrerDigestMustBeManifestDigest verifies that SBOM referrers
+// produced by buildReferrersFromAttestationLayers use the attestation manifest
+// digest, NOT the layer digest. FetchSBOMContent expects the attestation manifest
+// digest so it can fetch the manifest and find the SBOM layer inside it.
+// Using a layer digest causes FetchSBOMContent to call remote.Get on a layer blob,
+// which the registry rejects with MANIFEST_UNKNOWN.
+//
+// This reproduces the bug:
+//
+//	Downloading SBOM from ghcr.io/hkolvenbach/oci-explorer@sha256:c9d23124...
+//	Error fetching SBOM: failed to fetch attestation manifest: MANIFEST_UNKNOWN
+func TestSBOMReferrerDigestMustBeManifestDigest(t *testing.T) {
+	data := loadTestFixture(t, "kairos_attestation_manifest.json")
+
+	var manifest v1.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("Failed to parse attestation manifest: %v", err)
+	}
+
+	attestationManifestDigest := "sha256:77ffcabd824268cec9426ee4bb1c6824ad4c745bcad29e94938091e35ed64f99"
+	indexAnnotations := map[string]string{
+		"vnd.docker.reference.digest": "sha256:c93ad9a4ed48c4fb9eed1bf52397effe2b6ec40bb99685015957f8406857f54a",
+		"vnd.docker.reference.type":   "attestation-manifest",
+	}
+
+	// Collect layer digests - these must NOT be used as referrer digests
+	layerDigests := make(map[string]bool)
+	for _, layer := range manifest.Layers {
+		layerDigests[layer.Digest.String()] = true
+	}
+
+	// Call the actual production code
+	referrers := buildReferrersFromAttestationLayers(&manifest, attestationManifestDigest, 841, indexAnnotations)
+
+	if len(referrers) == 0 {
+		t.Fatal("Expected at least one referrer from attestation manifest")
+	}
+
+	for _, ref := range referrers {
+		if layerDigests[ref.Digest] {
+			t.Errorf("Referrer (type=%s) has layer digest %s instead of attestation manifest digest %s. "+
+				"FetchSBOMContent needs the attestation manifest digest to fetch the manifest "+
+				"and find the SBOM layer within it. Using a layer digest causes MANIFEST_UNKNOWN.",
+				ref.Type, truncateDigest(ref.Digest), truncateDigest(attestationManifestDigest))
+		}
+		if ref.Digest != attestationManifestDigest {
+			t.Errorf("Referrer (type=%s) digest = %s, want attestation manifest digest %s",
+				ref.Type, truncateDigest(ref.Digest), truncateDigest(attestationManifestDigest))
+		}
+	}
 }
 
 // TestTruncateDigest tests the digest truncation helper function
