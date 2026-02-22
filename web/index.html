@@ -120,6 +120,7 @@
                     <button onclick="quickInspect('nginx:latest')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">nginx:latest</button>
                     <button onclick="quickInspect('python:3.12-slim')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">python:3.12-slim</button>
                     <button onclick="quickInspect('golang:1.21')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">golang:1.21</button>
+                    <button onclick="quickInspect('ghcr.io/hkolvenbach/oci-explorer:latest')" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm font-mono">ghcr.io/hkolvenbach/oci-explorer:latest</button>
                 </div>
             </div>
 
@@ -428,8 +429,10 @@
 
             // Add click handlers for expandable cards
             container.querySelectorAll('[data-expand]').forEach(el => {
-                el.addEventListener('click', () => {
+                el.addEventListener('click', (e) => {
                     const target = document.getElementById(el.dataset.expand);
+                    // Don't toggle if click originated inside the expanded detail section
+                    if (target && target.contains(e.target)) return;
                     target.classList.toggle('hidden');
                     el.classList.toggle('border-slate-500');
                     el.classList.toggle('bg-slate-700/50');
@@ -885,11 +888,115 @@
             }
         }
 
+        async function fetchVEX(repository, digest, index, event) {
+            event.stopPropagation();
+            const btn = event.currentTarget;
+            const originalContent = btn.innerHTML;
+
+            btn.innerHTML = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/api/vex?repository=${encodeURIComponent(repository)}&digest=${encodeURIComponent(digest)}`);
+                const result = await response.json();
+
+                if (!result.success) {
+                    throw new Error(result.error || 'Failed to fetch VEX');
+                }
+
+                // Render VEX content in the detail section
+                const detailEl = document.getElementById(`referrer-detail-${index}`);
+                if (detailEl) {
+                    // Show the detail section if hidden
+                    detailEl.classList.remove('hidden');
+                    // Find or create VEX content container
+                    let vexContainer = detailEl.querySelector('.vex-content');
+                    if (!vexContainer) {
+                        vexContainer = document.createElement('div');
+                        vexContainer.className = 'vex-content mt-3';
+                        detailEl.appendChild(vexContainer);
+                    }
+                    vexContainer.innerHTML = renderVEXContent(result.data);
+                }
+            } catch (error) {
+                alert('Error fetching VEX: ' + error.message);
+            } finally {
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }
+        }
+
+        function renderVEXContent(vex) {
+            const statusColors = {
+                not_affected: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+                affected: 'bg-red-500/20 text-red-300 border-red-500/30',
+                fixed: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+                under_investigation: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+            };
+
+            const statusLabels = {
+                not_affected: 'Not Affected',
+                affected: 'Affected',
+                fixed: 'Fixed',
+                under_investigation: 'Under Investigation'
+            };
+
+            // Count statuses for summary
+            const counts = {};
+            (vex.statements || []).forEach(s => {
+                counts[s.status] = (counts[s.status] || 0) + 1;
+            });
+
+            return `
+                <div class="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3">
+                    <div class="flex items-center gap-2 mb-2">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span class="text-xs font-semibold text-emerald-300">VEX Document</span>
+                        ${vex.author ? `<span class="text-xs text-slate-500">by ${vex.author}</span>` : ''}
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-3 pl-6">
+                        ${vex['@id'] ? `<div><span class="text-slate-500">ID:</span> <span class="text-slate-400 break-all">${vex['@id']}</span></div>` : ''}
+                        ${vex.timestamp ? `<div><span class="text-slate-500">Issued:</span> <span class="text-slate-400">${new Date(vex.timestamp).toLocaleString()}</span></div>` : ''}
+                        ${vex.last_updated ? `<div><span class="text-slate-500">Updated:</span> <span class="text-slate-400">${new Date(vex.last_updated).toLocaleString()}</span></div>` : ''}
+                        ${vex.version ? `<div><span class="text-slate-500">Version:</span> <span class="text-slate-400">${vex.version}</span></div>` : ''}
+                    </div>
+                    <div class="flex flex-wrap gap-2 mb-3 pl-6">
+                        ${Object.entries(counts).map(([status, count]) => `
+                            <span class="px-2 py-0.5 text-xs font-semibold rounded border ${statusColors[status] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}">
+                                ${count} ${statusLabels[status] || status}
+                            </span>
+                        `).join('')}
+                    </div>
+                    <div class="space-y-2 max-h-96 overflow-y-auto scrollbar-thin">
+                        ${(vex.statements || []).map(stmt => `
+                            <div class="flex items-start gap-2 p-2 bg-slate-800/50 rounded">
+                                <span class="px-2 py-0.5 text-xs font-semibold rounded border flex-shrink-0 ${statusColors[stmt.status] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}">
+                                    ${statusLabels[stmt.status] || stmt.status}
+                                </span>
+                                <div class="min-w-0 flex-1">
+                                    <div class="text-xs font-mono font-semibold text-slate-200">${stmt.vulnerability?.name || 'Unknown'}</div>
+                                    ${stmt.status_notes ? `<div class="text-xs text-slate-400 mt-0.5">${stmt.status_notes}</div>` : ''}
+                                    ${stmt.justification ? `<div class="text-xs text-slate-400 mt-0.5">${stmt.justification.replace(/_/g, ' ')}</div>` : ''}
+                                    ${stmt.impact_statement ? `<div class="text-xs text-slate-500 mt-0.5">${stmt.impact_statement}</div>` : ''}
+                                    ${(stmt.products && stmt.products.length) ? `
+                                        <div class="text-xs text-slate-500 mt-1 font-mono break-all">${stmt.products.map(p => p['@id'] || '').filter(Boolean).join(', ')}</div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
         function renderReferrersSection(referrers, totalCount = referrers.length) {
             const typeIcons = {
                 signature: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>',
                 sbom: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path></svg>',
                 attestation: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>',
+                vex: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>',
                 artifact: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>'
             };
 
@@ -897,6 +1004,7 @@
                 signature: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
                 sbom: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
                 attestation: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+                vex: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
                 artifact: 'bg-slate-500/20 text-slate-300 border-slate-500/30'
             };
 
@@ -936,7 +1044,7 @@
                                                 </div>
                                                 <div>
                                                     <div class="text-sm font-semibold text-slate-200 capitalize">${r.type}</div>
-                                                    <div class="text-xs text-slate-500 font-mono">${truncateDigest(r.digest, 12)}</div>
+                                                    <div class="text-xs text-slate-500 font-mono">${r.signatureInfo?.identity ? r.signatureInfo.identity : truncateDigest(r.digest, 12)}</div>
                                                 </div>
                                             </div>
                                             <div class="flex items-center gap-2">
@@ -947,6 +1055,16 @@
                                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
                                                         </svg>
                                                         Download
+                                                    </button>
+                                                ` : ''}
+                                                ${r.type === 'vex' ? `
+                                                    <button onclick="fetchVEX('${currentData?.repository}', '${r.digest}', ${i}, event)"
+                                                        class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                                        </svg>
+                                                        View
                                                     </button>
                                                 ` : ''}
                                                 <div class="text-sm text-slate-400">${formatBytes(r.size)}</div>
@@ -963,6 +1081,28 @@
                                                     <div class="text-xs text-slate-300 mt-1 break-all">${r.mediaType}</div>
                                                 </div>
                                             </div>
+                                            ${r.signatureInfo ? `
+                                                <div class="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                                                    <div class="flex items-center gap-2 mb-2">
+                                                        <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                                                        </svg>
+                                                        <span class="text-xs font-semibold text-amber-300">Sigstore Certificate</span>
+                                                    </div>
+                                                    ${r.signatureInfo.identity ? `
+                                                        <div class="text-xs mb-1">
+                                                            <span class="text-slate-500">Identity:</span>
+                                                            <span class="text-amber-200 ml-1 break-all">${r.signatureInfo.identity}</span>
+                                                        </div>
+                                                    ` : ''}
+                                                    ${r.signatureInfo.issuer ? `
+                                                        <div class="text-xs">
+                                                            <span class="text-slate-500">OIDC Issuer:</span>
+                                                            <span class="text-amber-200 ml-1 break-all">${r.signatureInfo.issuer}</span>
+                                                        </div>
+                                                    ` : ''}
+                                                </div>
+                                            ` : ''}
                                             ${r.annotations && Object.keys(r.annotations).length ? `
                                                 <div>
                                                     <span class="text-slate-500 text-xs">Annotations</span>
@@ -1175,6 +1315,7 @@
                     signature: { fill: '#f59e0b', text: 'Signature' },
                     sbom: { fill: '#06b6d4', text: 'SBOM' },
                     attestation: { fill: '#8b5cf6', text: 'Attestation' },
+                    vex: { fill: '#10b981', text: 'VEX' },
                     artifact: { fill: '#64748b', text: 'Artifact' }
                 };
                 return colors[type] || colors.artifact;
@@ -1395,6 +1536,8 @@
                             <text x="322" y="22" fill="#94a3b8" font-size="10">SBOM</text>
                             <rect x="370" y="10" width="16" height="16" rx="2" fill="#8b5cf6" fill-opacity="0.5"/>
                             <text x="392" y="22" fill="#94a3b8" font-size="10">Attestation</text>
+                            <rect x="470" y="10" width="16" height="16" rx="2" fill="#10b981"/>
+                            <text x="492" y="22" fill="#94a3b8" font-size="10">VEX</text>
                         </g>
                             </g>
                         </svg>
