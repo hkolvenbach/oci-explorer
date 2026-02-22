@@ -848,16 +848,9 @@ func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, str
 
 	// Find the SBOM layer
 	for _, layer := range manifest.Layers {
-		predicateType := ""
-		if pt, ok := layer.Annotations["in-toto.io/predicate-type"]; ok {
-			predicateType = pt
-		}
+		predicateType := getPredicateType(layer.Annotations)
 
-		predicateLower := strings.ToLower(predicateType)
-		if strings.Contains(predicateLower, "spdx") ||
-			strings.Contains(predicateLower, "cyclonedx") ||
-			strings.Contains(predicateLower, "sbom") ||
-			strings.Contains(predicateLower, "syft") {
+		if containsAny(predicateType, "spdx", "cyclonedx", "sbom", "syft") {
 
 			logVerbose("Found SBOM layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), predicateType)
 
@@ -986,12 +979,8 @@ func (c *Client) FetchVEXContent(repository string, digest string) (*VEXDocument
 			if manErr == nil {
 				logVerbose("Searching for VEX layer in %d layers", len(manifest.Layers))
 				for _, layer := range manifest.Layers {
-					predicateType := layer.Annotations["in-toto.io/predicate-type"]
-					if predicateType == "" {
-						predicateType = layer.Annotations["predicateType"]
-					}
-					predicateLower := strings.ToLower(predicateType)
-					if strings.Contains(predicateLower, "vex") || strings.Contains(predicateLower, "openvex") {
+					predicateType := getPredicateType(layer.Annotations)
+					if containsAny(predicateType, "vex", "openvex") {
 						logVerbose("Found VEX layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), predicateType)
 						return c.fetchAndParseVEXBlob(ref.Context(), layer.Digest.String())
 					}
@@ -1126,24 +1115,13 @@ func buildReferrersFromAttestationLayers(manifest *v1.Manifest, attestationDiges
 	var referrers []Referrer
 
 	for _, layer := range manifest.Layers {
-		predicateType := ""
-		// Check both in-toto standard annotation and cosign's annotation key
-		if pt, ok := layer.Annotations["in-toto.io/predicate-type"]; ok {
-			predicateType = pt
-		} else if pt, ok := layer.Annotations["predicateType"]; ok {
-			predicateType = pt
-		}
+		predicateType := getPredicateType(layer.Annotations)
 		if predicateType != "" {
 			logVerbose("  Layer %s has predicate-type: %s", truncateDigest(layer.Digest.String()), predicateType)
 		}
 
-		predicateLower := strings.ToLower(predicateType)
-
 		// Check for SBOM predicate types
-		if strings.Contains(predicateLower, "spdx") ||
-			strings.Contains(predicateLower, "cyclonedx") ||
-			strings.Contains(predicateLower, "sbom") ||
-			strings.Contains(predicateLower, "syft") {
+		if containsAny(predicateType, "spdx", "cyclonedx", "sbom", "syft") {
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
@@ -1166,8 +1144,7 @@ func buildReferrersFromAttestationLayers(manifest *v1.Manifest, attestationDiges
 		}
 
 		// Check for VEX predicate types (must come before provenance/attestation)
-		if strings.Contains(predicateLower, "vex") ||
-			strings.Contains(predicateLower, "openvex") {
+		if containsAny(predicateType, "vex", "openvex") {
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
@@ -1186,8 +1163,7 @@ func buildReferrersFromAttestationLayers(manifest *v1.Manifest, attestationDiges
 		}
 
 		// Check for provenance/attestation predicate types
-		if strings.Contains(predicateLower, "provenance") ||
-			strings.Contains(predicateLower, "slsa") {
+		if containsAny(predicateType, "provenance", "slsa") {
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
@@ -1310,61 +1286,74 @@ func (c *Client) extractSignatureInfo(ref name.Reference, digest string) (*Signa
 	return info, nil
 }
 
-func classifyArtifactType(artifactType string, annotations map[string]string) string {
-	artifactTypeLower := strings.ToLower(artifactType)
+// getPredicateType returns the predicate type from annotations, checking known keys
+// in priority order: in-toto.io/predicate-type, dev.sigstore.bundle.predicateType, predicateType.
+func getPredicateType(annotations map[string]string) string {
+	if pt := annotations["in-toto.io/predicate-type"]; pt != "" {
+		return pt
+	}
+	if pt := annotations["dev.sigstore.bundle.predicateType"]; pt != "" {
+		return pt
+	}
+	return annotations["predicateType"]
+}
 
-	if strings.Contains(artifactTypeLower, "signature") || strings.Contains(artifactTypeLower, "notary") || strings.Contains(artifactTypeLower, "cosign") {
+// containsAny returns true if the lowercased string s contains any of the given substrings.
+func containsAny(s string, substrs ...string) bool {
+	lower := strings.ToLower(s)
+	for _, sub := range substrs {
+		if strings.Contains(lower, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func classifyArtifactType(artifactType string, annotations map[string]string) string {
+	if containsAny(artifactType, "signature", "notary", "cosign") {
 		logVerbose("Classified artifact as 'signature' based on artifactType: %s", artifactType)
 		return "signature"
 	}
-	if strings.Contains(artifactTypeLower, "sbom") || strings.Contains(artifactTypeLower, "cyclonedx") || strings.Contains(artifactTypeLower, "spdx") {
+	if containsAny(artifactType, "sbom", "cyclonedx", "spdx") {
 		logVerbose("Classified artifact as 'sbom' based on artifactType: %s", artifactType)
 		return "sbom"
 	}
 	// VEX check must come before attestation to avoid classifying VEX as generic attestation
-	if strings.Contains(artifactTypeLower, "vex") || strings.Contains(artifactTypeLower, "openvex") {
+	if containsAny(artifactType, "vex", "openvex") {
 		logVerbose("Classified artifact as 'vex' based on artifactType: %s", artifactType)
 		return "vex"
 	}
-	if strings.Contains(artifactTypeLower, "vuln") || strings.Contains(artifactTypeLower, "scan") {
+	if containsAny(artifactType, "vuln", "scan") {
 		logVerbose("Classified artifact as 'vulnerability-scan' based on artifactType: %s", artifactType)
 		return "vulnerability-scan"
 	}
 
 	// Check annotations for predicate type before generic envelope type checks.
 	// In-toto/DSSE envelope types need annotation inspection to determine the specific type.
-	// Also check Sigstore bundle predicateType annotation.
-	predType := annotations["in-toto.io/predicate-type"]
-	if predType == "" {
-		predType = annotations["dev.sigstore.bundle.predicateType"]
-	}
-	if predType == "" {
-		predType = annotations["predicateType"]
-	}
+	predType := getPredicateType(annotations)
 	if predType != "" {
 		logVerbose("Checking predicate type annotation: %s", predType)
-		predTypeLower := strings.ToLower(predType)
-		if strings.Contains(predTypeLower, "vex") || strings.Contains(predTypeLower, "openvex") {
+		if containsAny(predType, "vex", "openvex") {
 			logVerbose("Classified artifact as 'vex' based on predicate-type annotation")
 			return "vex"
 		}
-		if strings.Contains(predTypeLower, "sbom") || strings.Contains(predTypeLower, "cyclonedx") || strings.Contains(predTypeLower, "spdx") {
+		if containsAny(predType, "sbom", "cyclonedx", "spdx") {
 			logVerbose("Classified artifact as 'sbom' based on predicate-type annotation")
 			return "sbom"
 		}
-		if strings.Contains(predTypeLower, "provenance") || strings.Contains(predTypeLower, "slsa") {
+		if containsAny(predType, "provenance", "slsa") {
 			logVerbose("Classified artifact as 'attestation' based on predicate-type annotation")
 			return "attestation"
 		}
-		if strings.Contains(predTypeLower, "vuln") {
+		if containsAny(predType, "vuln") {
 			logVerbose("Classified artifact as 'vulnerability-scan' based on predicate-type annotation")
 			return "vulnerability-scan"
 		}
 	}
 
 	// Sigstore bundle artifact type — classify based on content annotation
-	if strings.Contains(artifactTypeLower, "sigstore.bundle") {
-		if content, ok := annotations["dev.sigstore.bundle.content"]; ok && strings.Contains(strings.ToLower(content), "message-signature") {
+	if containsAny(artifactType, "sigstore.bundle") {
+		if content, ok := annotations["dev.sigstore.bundle.content"]; ok && containsAny(content, "message-signature") {
 			logVerbose("Classified Sigstore bundle as 'signature' based on content annotation")
 			return "signature"
 		}
@@ -1372,7 +1361,7 @@ func classifyArtifactType(artifactType string, annotations map[string]string) st
 		return "attestation"
 	}
 
-	if strings.Contains(artifactTypeLower, "attestation") || strings.Contains(artifactTypeLower, "in-toto") || strings.Contains(artifactTypeLower, "provenance") {
+	if containsAny(artifactType, "attestation", "in-toto", "provenance") {
 		logVerbose("Classified artifact as 'attestation' based on artifactType: %s", artifactType)
 		return "attestation"
 	}

@@ -644,7 +644,7 @@ func TestExtractAttestationInfoLogic(t *testing.T) {
 		predicateLower := strings.ToLower(predicateType)
 
 		// Check for SBOM
-		if containsAny(predicateLower, []string{"spdx", "cyclonedx", "sbom", "syft"}) {
+		if containsAny(predicateLower, "spdx", "cyclonedx", "sbom", "syft") {
 			if !foundSBOM {
 				foundSBOM = true
 				annotations := copyAnnotations(indexAnnotations)
@@ -662,7 +662,7 @@ func TestExtractAttestationInfoLogic(t *testing.T) {
 		}
 
 		// Check for provenance
-		if containsAny(predicateLower, []string{"provenance", "slsa"}) {
+		if containsAny(predicateLower, "provenance", "slsa") {
 			if !foundProvenance {
 				foundProvenance = true
 				annotations := copyAnnotations(indexAnnotations)
@@ -719,16 +719,6 @@ func TestExtractAttestationInfoLogic(t *testing.T) {
 	if !attestationFound {
 		t.Error("Expected to find attestation referrer")
 	}
-}
-
-// Helper functions for tests
-func containsAny(s string, substrs []string) bool {
-	for _, substr := range substrs {
-		if strings.Contains(s, substr) {
-			return true
-		}
-	}
-	return false
 }
 
 func copyAnnotations(m map[string]string) map[string]string {
