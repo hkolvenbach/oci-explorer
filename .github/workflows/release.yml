@@ -167,66 +167,28 @@ jobs:
           subject-digest: ${{ steps.docker-push.outputs.digest }}
           push-to-registry: true
 
-      - name: Generate and attach OpenVEX document
+      - name: Generate OpenVEX document
+        if: inputs.dry-run != true
+        uses: ./.github/actions/generate-vex
+        with:
+          product: "pkg:oci/${{ github.event.repository.name }}@${{ steps.docker-push.outputs.digest }}"
+          author: "${{ github.repository_owner }}"
+
+      - name: Attach VEX document as cosign attestation
         if: inputs.dry-run != true
         run: |
-          # Install tools
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          go install github.com/openvex/vexctl@latest
-
-          IMAGE_REF="ghcr.io/${{ github.repository }}@${{ steps.docker-push.outputs.digest }}"
-
-          # Run govulncheck and capture output
-          govulncheck -format json ./... > govulncheck-output.json || true
-
-          # Generate OpenVEX document from govulncheck results
-          PRODUCT="pkg:oci/${{ github.event.repository.name }}@${{ steps.docker-push.outputs.digest }}"
-          AUTHOR="${{ github.repository_owner }}"
-
-          # Extract vulnerability IDs (aliases like CVE-*) from govulncheck output
-          VULNS=$(jq -r '[.osv // empty | .aliases[]? // empty] | unique[]' govulncheck-output.json 2>/dev/null | grep -E '^CVE-|^GHSA-' || true)
-
-          if [ -z "$VULNS" ]; then
-            # No known CVEs found — create a clean VEX document
-            vexctl create \
-              --author="$AUTHOR" \
-              --file=vex.json \
-              -p "$PRODUCT" \
-              -v "NOASSERTION" \
-              -s not_affected \
-              -j vulnerable_code_not_in_execute_path \
-              --impact-statement "govulncheck found no reachable vulnerabilities"
-          else
-            # Create VEX document with first vuln, then merge additional ones
-            FIRST=true
-            for CVE in $VULNS; do
-              if [ "$FIRST" = true ]; then
-                vexctl create \
-                  --author="$AUTHOR" \
-                  --file=vex.json \
-                  -p "$PRODUCT" \
-                  -v "$CVE" \
-                  -s under_investigation \
-                  --status-note "govulncheck reports this vulnerability as reachable"
-                FIRST=false
-              else
-                # Add additional vuln statements to the existing document
-                vexctl add \
-                  --in-place \
-                  -p "$PRODUCT" \
-                  -v "$CVE" \
-                  -s under_investigation \
-                  --status-note "govulncheck reports this vulnerability as reachable" \
-                  vex.json || true
-              fi
-            done
-          fi
-
-          # Attach VEX document as cosign attestation
           cosign attest --yes \
             --type openvex \
             --predicate vex.json \
-            "$IMAGE_REF"
+            "ghcr.io/${{ github.repository }}@${{ steps.docker-push.outputs.digest }}"
+
+      - name: Upload VEX document as build artifact
+        if: inputs.dry-run != true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vex-document
+          path: vex.json
+          retention-days: 90
 
       - name: Verify image signature (smoke test)
         if: inputs.dry-run != true
