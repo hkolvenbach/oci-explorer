@@ -52,6 +52,18 @@ func writeJSON(w http.ResponseWriter, data interface{}) {
 	}
 }
 
+// writeError writes a JSON error response with the given status code and message.
+func writeError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	writeJSON(w, APIResponse{Success: false, Error: msg})
+}
+
+// writeBadRequest writes a 400 Bad Request JSON error response.
+func writeBadRequest(w http.ResponseWriter, msg string) {
+	writeError(w, http.StatusBadRequest, msg)
+}
+
 // writeBytes writes bytes to the http.ResponseWriter
 func writeBytes(w http.ResponseWriter, data []byte) {
 	if _, err := w.Write(data); err != nil {
@@ -172,16 +184,10 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 
 func handleInspect(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	imageRef := r.URL.Query().Get("image")
 	if imageRef == "" {
 		logVerbose("Inspect request rejected: missing image parameter")
-		w.WriteHeader(http.StatusBadRequest)
-		writeJSON(w, APIResponse{
-			Success: false,
-			Error:   "image parameter is required",
-		})
+		writeBadRequest(w, "image parameter is required")
 		return
 	}
 
@@ -192,19 +198,13 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 	imageInfo, err := client.InspectImage(imageRef)
 	if err != nil {
 		log.Printf("Error inspecting image: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		writeJSON(w, APIResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	logVerbose("Successfully fetched image info for %s", imageRef)
-	writeJSON(w, APIResponse{
-		Success: true,
-		Data:    imageInfo,
-	})
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, APIResponse{Success: true, Data: imageInfo})
 }
 
 func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
@@ -213,12 +213,7 @@ func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
 
 	if repo == "" || digest == "" {
 		logVerbose("SBOM download request rejected: missing parameters")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{
-			Success: false,
-			Error:   "repository and digest parameters are required",
-		})
+		writeBadRequest(w, "repository and digest parameters are required")
 		return
 	}
 
@@ -229,12 +224,7 @@ func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
 	sbomData, contentType, err := client.FetchSBOMContent(repo, digest)
 	if err != nil {
 		log.Printf("Error fetching SBOM: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -253,12 +243,7 @@ func handleFetchVEX(w http.ResponseWriter, r *http.Request) {
 
 	if repo == "" || digest == "" {
 		logVerbose("VEX request rejected: missing parameters")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{
-			Success: false,
-			Error:   "repository and digest parameters are required",
-		})
+		writeBadRequest(w, "repository and digest parameters are required")
 		return
 	}
 
@@ -269,33 +254,19 @@ func handleFetchVEX(w http.ResponseWriter, r *http.Request) {
 	vexDoc, err := client.FetchVEXContent(repo, digest)
 	if err != nil {
 		log.Printf("Error fetching VEX: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, APIResponse{
-		Success: true,
-		Data:    vexDoc,
-	})
+	writeJSON(w, APIResponse{Success: true, Data: vexDoc})
 }
 
 func handleListTags(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	repo := r.URL.Query().Get("repository")
 	if repo == "" {
 		logVerbose("Tags request rejected: missing repository parameter")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{
-			Success: false,
-			Error:   "repository parameter is required",
-		})
+		writeBadRequest(w, "repository parameter is required")
 		return
 	}
 
@@ -304,11 +275,7 @@ func handleListTags(w http.ResponseWriter, r *http.Request) {
 	ref, err := name.NewRepository(repo)
 	if err != nil {
 		logVerbose("Invalid repository reference: %v", err)
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("invalid repository: %v", err),
-		})
+		writeBadRequest(w, fmt.Sprintf("invalid repository: %v", err))
 		return
 	}
 
@@ -316,18 +283,12 @@ func handleListTags(w http.ResponseWriter, r *http.Request) {
 	tags, err := remote.List(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
 		logVerbose("Failed to list tags: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	logVerbose("Found %d tags for %s", len(tags), repo)
-	json.NewEncoder(w).Encode(APIResponse{
-		Success: true,
-		Data:    tags,
-	})
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, APIResponse{Success: true, Data: tags})
 }
 
