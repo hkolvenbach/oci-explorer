@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"strings"
 	"sync"
 
@@ -19,7 +18,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -718,48 +716,19 @@ func (c *Client) populateFromImage(info *ImageInfo, desc *remote.Descriptor) err
 }
 
 func (c *Client) fetchReferrers(ref name.Reference, digest string) ([]Referrer, error) {
-	referrers := []Referrer{}
+	var referrers []Referrer
 
-	repo := ref.Context()
-	digestParts := strings.Split(digest, ":")
-	if len(digestParts) != 2 {
-		logVerbose("Invalid digest format for referrers lookup: %s", digest)
+	d, err := name.NewDigest(fmt.Sprintf("%s@%s", ref.Context().String(), digest))
+	if err != nil {
+		logVerbose("Invalid digest for referrers lookup: %s: %v", digest, err)
 		return referrers, nil
 	}
 
-	// First, try the OCI 1.1 Referrers API endpoint: GET /v2/<name>/referrers/<digest>
-	logVerbose("Trying OCI 1.1 Referrers API: /v2/%s/referrers/%s", repo.RepositoryStr(), digest)
-	apiReferrers, err := c.fetchReferrersViaAPI(repo, digest)
-	if err == nil && len(apiReferrers) > 0 {
-		logVerbose("Found %d referrers via Referrers API", len(apiReferrers))
-		return apiReferrers, nil
-	}
+	// remote.Referrers handles both the OCI 1.1 Referrers API and the tag-schema fallback
+	logVerbose("Fetching referrers for %s", truncateDigest(digest))
+	idx, err := remote.Referrers(d, remote.WithAuthFromKeychain(c.keychain))
 	if err != nil {
-		logVerbose("Referrers API not available or failed: %v", err)
-	} else {
-		logVerbose("Referrers API returned empty result, trying tag schema fallback")
-	}
-
-	// Fallback: Try referrers tag schema (sha256-<hash>)
-	referrersTag := fmt.Sprintf("sha256-%s", digestParts[1])
-	logVerbose("Falling back to tag schema: %s:%s", repo.String(), referrersTag)
-
-	tagRef, err := name.NewTag(fmt.Sprintf("%s:%s", repo.String(), referrersTag))
-	if err != nil {
-		logVerbose("Failed to create referrers tag reference: %v", err)
-		return referrers, nil
-	}
-
-	desc, err := remote.Get(tagRef, remote.WithAuthFromKeychain(c.keychain))
-	if err != nil {
-		logVerbose("No referrers found via tag schema (this is normal for images without attached artifacts)")
-		return referrers, nil
-	}
-	logVerbose("Found referrers index at tag %s", referrersTag)
-
-	idx, err := desc.ImageIndex()
-	if err != nil {
-		logVerbose("Failed to parse referrers index: %v", err)
+		logVerbose("Failed to fetch referrers for %s: %v", truncateDigest(digest), err)
 		return referrers, nil
 	}
 
@@ -768,7 +737,7 @@ func (c *Client) fetchReferrers(ref name.Reference, digest string) ([]Referrer, 
 		logVerbose("Failed to get referrers index manifest: %v", err)
 		return referrers, nil
 	}
-	logVerbose("Referrers index contains %d artifacts", len(indexManifest.Manifests))
+	logVerbose("Found %d referrers for %s", len(indexManifest.Manifests), truncateDigest(digest))
 
 	for i, m := range indexManifest.Manifests {
 		refType := classifyArtifactType(string(m.ArtifactType), m.Annotations)
@@ -781,121 +750,6 @@ func (c *Client) fetchReferrers(ref name.Reference, digest string) ([]Referrer, 
 			Digest:       m.Digest.String(),
 			Size:         m.Size,
 			ArtifactType: string(m.ArtifactType),
-			Annotations:  m.Annotations,
-		})
-	}
-
-	return referrers, nil
-}
-
-// ReferrersResponse represents the response from the OCI Referrers API
-type ReferrersResponse struct {
-	SchemaVersion int                     `json:"schemaVersion"`
-	MediaType     string                  `json:"mediaType"`
-	Manifests     []ReferrerManifestEntry `json:"manifests"`
-}
-
-// ReferrerManifestEntry represents a single referrer in the API response
-type ReferrerManifestEntry struct {
-	MediaType    string            `json:"mediaType"`
-	Digest       string            `json:"digest"`
-	Size         int64             `json:"size"`
-	ArtifactType string            `json:"artifactType"`
-	Annotations  map[string]string `json:"annotations,omitempty"`
-}
-
-// fetchReferrersViaAPI uses the OCI 1.1 Referrers API endpoint
-func (c *Client) fetchReferrersViaAPI(repo name.Repository, digest string) ([]Referrer, error) {
-	// Build the referrers API URL
-	// Format: GET /v2/<name>/referrers/<digest>
-	registry := repo.Registry
-	scheme := "https"
-	if registry.Scheme() != "" {
-		scheme = registry.Scheme()
-	}
-
-	url := fmt.Sprintf("%s://%s/v2/%s/referrers/%s",
-		scheme,
-		registry.RegistryStr(),
-		repo.RepositoryStr(),
-		digest,
-	)
-	logVerbose("Referrers API URL: %s", url)
-
-	// Get authentication for the registry
-	auth, err := c.keychain.Resolve(repo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get auth: %w", err)
-	}
-
-	// Create transport with authentication
-	tr, err := transport.NewWithContext(
-		context.Background(),
-		repo.Registry,
-		auth,
-		http.DefaultTransport,
-		[]string{repo.Scope(transport.PullScope)},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create transport: %w", err)
-	}
-
-	// Make the request
-	client := &http.Client{Transport: tr}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set Accept header for OCI index
-	req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json")
-
-	logVerbose("Sending GET request to Referrers API...")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	logVerbose("Referrers API response status: %d %s", resp.StatusCode, resp.Status)
-
-	if resp.StatusCode == http.StatusNotFound {
-		// 404 means the registry doesn't support the Referrers API
-		return nil, fmt.Errorf("referrers API not supported (404)")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
-	}
-
-	// Read and parse the response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	logVerbose("Referrers API response body length: %d bytes", len(body))
-
-	var referrersResp ReferrersResponse
-	if err := json.Unmarshal(body, &referrersResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	logVerbose("Referrers API returned %d manifests", len(referrersResp.Manifests))
-
-	// Convert to our Referrer type
-	referrers := make([]Referrer, 0, len(referrersResp.Manifests))
-	for i, m := range referrersResp.Manifests {
-		refType := classifyArtifactType(m.ArtifactType, m.Annotations)
-		logVerbose("  Referrer %d: type=%s, artifactType=%s, digest=%s, size=%d",
-			i, refType, m.ArtifactType, truncateDigest(m.Digest), m.Size)
-
-		referrers = append(referrers, Referrer{
-			Type:         refType,
-			MediaType:    m.MediaType,
-			Digest:       m.Digest,
-			Size:         m.Size,
-			ArtifactType: m.ArtifactType,
 			Annotations:  m.Annotations,
 		})
 	}
