@@ -159,6 +159,12 @@
         let panStartX = 0;
         let panStartY = 0;
 
+        // HTML/attribute escaping to prevent XSS from untrusted registry data
+        function esc(str) {
+            if (str == null) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        }
+
         // Spinner SVG used for loading states on buttons
         const SPINNER_SVG = '<svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
 
@@ -464,7 +470,7 @@
         }
 
         function copyableDigest(digest, classes = '') {
-            return `<code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all cursor-pointer hover:text-slate-100 hover:bg-slate-800 transition-colors relative group/copy inline-flex items-center gap-1.5 ${classes}" title="Click to copy" onclick="event.stopPropagation();navigator.clipboard.writeText('${digest}');const t=this.querySelector('.copy-toast');t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),1500)">${digest}<svg class="w-3.5 h-3.5 flex-shrink-0 opacity-0 group-hover/copy:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg><span class="copy-toast hidden absolute top-full mt-1 left-1/2 -translate-x-1/2 px-2 py-1 bg-slate-700 text-xs text-green-400 rounded whitespace-nowrap z-50 shadow-lg">Copied!</span></code>`;
+            return `<code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all cursor-pointer hover:text-slate-100 hover:bg-slate-800 transition-colors relative group/copy inline-flex items-center gap-1.5 ${classes}" title="Click to copy" data-copy="${esc(digest)}" onclick="event.stopPropagation();navigator.clipboard.writeText(this.dataset.copy);const t=this.querySelector('.copy-toast');t.classList.remove('hidden');setTimeout(()=>t.classList.add('hidden'),1500)">${esc(digest)}<svg class="w-3.5 h-3.5 flex-shrink-0 opacity-0 group-hover/copy:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg><span class="copy-toast hidden absolute top-full mt-1 left-1/2 -translate-x-1/2 px-2 py-1 bg-slate-700 text-xs text-green-400 rounded whitespace-nowrap z-50 shadow-lg">Copied!</span></code>`;
         }
 
         function saveCollapseStates() {
@@ -667,21 +673,21 @@
                                         <svg class="w-6 h-6 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
                                         </svg>
-                                        <h2 class="text-lg font-semibold font-mono break-all">${data.repository}</h2>
+                                        <h2 class="text-lg font-semibold font-mono break-all">${esc(data.repository)}</h2>
                                     </div>
                                     <div class="flex items-center gap-2 mt-2 flex-wrap">
                                         ${(data.tags || []).slice(0, 5).map(tag => `
-                                            <span class="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs font-mono">${tag}</span>
+                                            <span class="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs font-mono">${esc(tag)}</span>
                                         `).join('')}
                                         ${data.tags?.length > 5 ? `<span class="text-xs text-slate-500">+${data.tags.length - 5} more</span>` : ''}
                                     </div>
                                 </div>
                                 <div class="text-right">
-                                    <div class="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-slate-200 transition-colors group relative" onclick="navigator.clipboard.writeText('${data.digest}');this.querySelector('.copy-toast').classList.remove('hidden');setTimeout(()=>this.querySelector('.copy-toast').classList.add('hidden'),1500)" title="${data.digest}">
+                                    <div class="flex items-center gap-2 text-sm text-slate-400 cursor-pointer hover:text-slate-200 transition-colors group relative" data-copy="${esc(data.digest)}" onclick="navigator.clipboard.writeText(this.dataset.copy);this.querySelector('.copy-toast').classList.remove('hidden');setTimeout(()=>this.querySelector('.copy-toast').classList.add('hidden'),1500)" title="${esc(data.digest)}">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"></path>
                                         </svg>
-                                        <span class="font-mono">${truncateDigest(data.digest, 16)}</span>
+                                        <span class="font-mono">${esc(truncateDigest(data.digest, 16))}</span>
                                         <svg class="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
                                         </svg>
@@ -820,8 +826,8 @@
                                     <div class="flex items-start gap-3 min-w-0">
                                         <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 flex-shrink-0">${i}</div>
                                         <div class="min-w-0">
-                                            <div class="text-sm font-mono text-slate-300 truncate truncate-when-collapsed">${m.digest}</div>
-                                            <div class="text-xs text-slate-500">${m.platform ? `${m.platform.os}/${m.platform.architecture}${m.platform.variant ? '/' + m.platform.variant : ''}` : 'unknown'}</div>
+                                            <div class="text-sm font-mono text-slate-300 truncate truncate-when-collapsed">${esc(m.digest)}</div>
+                                            <div class="text-xs text-slate-500">${m.platform ? `${esc(m.platform.os)}/${esc(m.platform.architecture)}${m.platform.variant ? '/' + esc(m.platform.variant) : ''}` : 'unknown'}</div>
                                         </div>
                                     </div>
                                     <div class="text-right flex-shrink-0">
@@ -831,7 +837,7 @@
                                 <div id="index-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 text-sm space-y-2">
                                     <div class="flex items-start gap-2">
                                         <span class="text-slate-500 min-w-24">Media Type:</span>
-                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${m.mediaType}</code>
+                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${esc(m.mediaType)}</code>
                                     </div>
                                     <div class="flex items-start gap-2">
                                         <span class="text-slate-500 min-w-24">Digest:</span>
@@ -867,8 +873,8 @@
                                     <div class="flex items-start gap-3 min-w-0">
                                         <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex-shrink-0">${i}</div>
                                         <div class="min-w-0">
-                                            <div class="text-sm font-mono text-slate-300 truncate truncate-when-collapsed">${l.digest}</div>
-                                            <div class="text-xs text-slate-500">${l.mediaType?.split('.').pop().replace('+', ' ')}</div>
+                                            <div class="text-sm font-mono text-slate-300 truncate truncate-when-collapsed">${esc(l.digest)}</div>
+                                            <div class="text-xs text-slate-500">${esc(l.mediaType?.split('.').pop().replace('+', ' '))}</div>
                                         </div>
                                     </div>
                                     <div class="text-right flex-shrink-0">
@@ -878,7 +884,7 @@
                                 <div id="layer-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 text-sm space-y-2">
                                     <div class="flex items-start gap-2">
                                         <span class="text-slate-500 min-w-24">Media Type:</span>
-                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${l.mediaType}</code>
+                                        <code class="text-xs bg-slate-900 px-2 py-1 rounded text-slate-300 break-all">${esc(l.mediaType)}</code>
                                     </div>
                                     <div class="flex items-start gap-2">
                                         <span class="text-slate-500 min-w-24">Digest:</span>
@@ -890,8 +896,8 @@
                                             <div class="mt-1 space-y-1">
                                                 ${Object.entries(l.annotations).map(([k, v]) => `
                                                     <div class="flex items-start gap-2 pl-2">
-                                                        <span class="text-xs text-slate-500">${k.split('.').pop()}:</span>
-                                                        <span class="text-xs text-slate-400">${v}</span>
+                                                        <span class="text-xs text-slate-500">${esc(k.split('.').pop())}:</span>
+                                                        <span class="text-xs text-slate-400">${esc(v)}</span>
                                                     </div>
                                                 `).join('')}
                                             </div>
@@ -936,8 +942,8 @@
                         ` : `
                         ${entries.map(([k, v]) => `
                             <div class="flex items-start gap-2 p-2 bg-slate-800/50 rounded">
-                                <span class="text-xs text-slate-500 min-w-32 break-all">${k.split('.').pop()}:</span>
-                                <span class="text-sm text-slate-300 break-all">${v}</span>
+                                <span class="text-xs text-slate-500 min-w-32 break-all">${esc(k.split('.').pop())}:</span>
+                                <span class="text-sm text-slate-300 break-all">${esc(v)}</span>
                             </div>
                         `).join('')}
                         `}
@@ -975,19 +981,19 @@
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                             <div class="bg-slate-800/50 rounded-lg p-3">
                                 <div class="text-xs text-slate-500">Architecture</div>
-                                <div class="text-sm text-slate-200 font-mono mt-1">${config.architecture || 'N/A'}</div>
+                                <div class="text-sm text-slate-200 font-mono mt-1">${esc(config.architecture) || 'N/A'}</div>
                             </div>
                             <div class="bg-slate-800/50 rounded-lg p-3">
                                 <div class="text-xs text-slate-500">OS</div>
-                                <div class="text-sm text-slate-200 font-mono mt-1">${config.os || 'N/A'}</div>
+                                <div class="text-sm text-slate-200 font-mono mt-1">${esc(config.os) || 'N/A'}</div>
                             </div>
                             <div class="bg-slate-800/50 rounded-lg p-3">
                                 <div class="text-xs text-slate-500">Created</div>
-                                <div class="text-sm text-slate-200 mt-1">${config.created ? new Date(config.created).toLocaleDateString() : 'N/A'}</div>
+                                <div class="text-sm text-slate-200 mt-1">${config.created ? esc(new Date(config.created).toLocaleDateString()) : 'N/A'}</div>
                             </div>
                             <div class="bg-slate-800/50 rounded-lg p-3">
                                 <div class="text-xs text-slate-500">Author</div>
-                                <div class="text-sm text-slate-200 mt-1 truncate">${config.author || 'N/A'}</div>
+                                <div class="text-sm text-slate-200 mt-1 truncate">${esc(config.author) || 'N/A'}</div>
                             </div>
                         </div>
 
@@ -995,18 +1001,18 @@
                             <div class="bg-slate-800/50 rounded-lg p-4 mb-4">
                                 <div class="text-sm font-semibold text-slate-300 mb-3">Runtime Configuration</div>
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                    ${config.config.User ? `<div><span class="text-slate-500">User:</span><span class="text-slate-300 ml-2 font-mono">${config.config.User}</span></div>` : ''}
-                                    ${config.config.WorkingDir ? `<div><span class="text-slate-500">Working Dir:</span><span class="text-slate-300 ml-2 font-mono">${config.config.WorkingDir}</span></div>` : ''}
+                                    ${config.config.User ? `<div><span class="text-slate-500">User:</span><span class="text-slate-300 ml-2 font-mono">${esc(config.config.User)}</span></div>` : ''}
+                                    ${config.config.WorkingDir ? `<div><span class="text-slate-500">Working Dir:</span><span class="text-slate-300 ml-2 font-mono">${esc(config.config.WorkingDir)}</span></div>` : ''}
                                     ${config.config.Entrypoint?.length ? `
                                         <div class="col-span-2">
                                             <span class="text-slate-500">Entrypoint:</span>
-                                            <code class="text-xs bg-slate-900 px-2 py-1 rounded text-emerald-300 ml-2">${config.config.Entrypoint.join(' ')}</code>
+                                            <code class="text-xs bg-slate-900 px-2 py-1 rounded text-emerald-300 ml-2">${esc(config.config.Entrypoint.join(' '))}</code>
                                         </div>
                                     ` : ''}
                                     ${config.config.Cmd?.length ? `
                                         <div class="col-span-2">
                                             <span class="text-slate-500">Cmd:</span>
-                                            <code class="text-xs bg-slate-900 px-2 py-1 rounded text-blue-300 ml-2">${config.config.Cmd.join(' ')}</code>
+                                            <code class="text-xs bg-slate-900 px-2 py-1 rounded text-blue-300 ml-2">${esc(config.config.Cmd.join(' '))}</code>
                                         </div>
                                     ` : ''}
                                     ${config.config.ExposedPorts && Object.keys(config.config.ExposedPorts).length ? `
@@ -1014,7 +1020,7 @@
                                             <span class="text-slate-500">Exposed Ports:</span>
                                             <div class="flex gap-2 mt-1 flex-wrap">
                                                 ${Object.keys(config.config.ExposedPorts).map(port => `
-                                                    <span class="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded">${port}</span>
+                                                    <span class="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded">${esc(port)}</span>
                                                 `).join('')}
                                             </div>
                                         </div>
@@ -1024,7 +1030,7 @@
                                             <span class="text-slate-500">Environment:</span>
                                             <div class="mt-1 space-y-1 max-h-32 overflow-y-auto scrollbar-thin">
                                                 ${config.config.Env.map(env => `
-                                                    <code class="block text-xs bg-slate-900 px-2 py-1 rounded text-slate-400">${env}</code>
+                                                    <code class="block text-xs bg-slate-900 px-2 py-1 rounded text-slate-400">${esc(env)}</code>
                                                 `).join('')}
                                             </div>
                                         </div>
@@ -1041,7 +1047,7 @@
                                         <div class="flex items-start gap-3 text-sm">
                                             <div class="w-6 h-6 rounded-full bg-slate-700 flex items-center justify-center text-xs text-slate-400 flex-shrink-0">${i + 1}</div>
                                             <div class="flex-1 min-w-0">
-                                                <code class="text-xs text-slate-300 break-all">${entry.created_by || 'Unknown'}</code>
+                                                <code class="text-xs text-slate-300 break-all">${esc(entry.created_by) || 'Unknown'}</code>
                                                 <div class="text-xs text-slate-500 mt-0.5">
                                                     ${entry.created ? new Date(entry.created).toLocaleString() : ''}
                                                     ${entry.empty_layer ? '<span class="ml-2 text-slate-600">(empty layer)</span>' : ''}
@@ -1126,7 +1132,7 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
                         <span class="text-xs font-semibold text-emerald-300">VEX Document</span>
-                        ${vex.author ? `<span class="text-xs text-slate-500">by ${vex.author}</span>` : ''}
+                        ${vex.author ? `<span class="text-xs text-slate-500">by ${esc(vex.author)}</span>` : ''}
                     </div>
                     <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mb-3 pl-6">
                         ${vex['@id'] ? `<div><span class="text-slate-500">ID:</span> <span class="text-slate-400 break-all">${vex['@id']}</span></div>` : ''}
@@ -1147,20 +1153,20 @@
                         ${(vex.statements || []).map(stmt => `
                             <div class="flex items-start gap-2 p-2 bg-slate-800/50 rounded">
                                 <span class="px-2 py-0.5 text-xs font-semibold rounded border flex-shrink-0 ${statusColors[stmt.status] || 'bg-slate-500/20 text-slate-300 border-slate-500/30'}">
-                                    ${statusLabels[stmt.status] || stmt.status}
+                                    ${esc(statusLabels[stmt.status] || stmt.status)}
                                 </span>
                                 <div class="min-w-0 flex-1">
                                     <div class="text-xs font-mono font-semibold text-slate-200">
-                                        ${stmt.vulnerability?.name || 'Unknown'}
-                                        ${stmt.vulnerability?.aliases?.length ? `<span class="text-slate-500 font-normal ml-1">(${stmt.vulnerability.aliases.join(', ')})</span>` : ''}
+                                        ${esc(stmt.vulnerability?.name) || 'Unknown'}
+                                        ${stmt.vulnerability?.aliases?.length ? `<span class="text-slate-500 font-normal ml-1">(${esc(stmt.vulnerability.aliases.join(', '))})</span>` : ''}
                                     </div>
-                                    ${stmt.vulnerability?.description ? `<div class="text-xs text-slate-300 mt-0.5">${stmt.vulnerability.description}</div>` : ''}
-                                    ${stmt.status_notes ? `<div class="text-xs text-slate-400 mt-0.5">${stmt.status_notes}</div>` : ''}
-                                    ${stmt.justification ? `<div class="text-xs text-slate-400 mt-0.5">${stmt.justification.replace(/_/g, ' ')}</div>` : ''}
-                                    ${stmt.impact_statement ? `<div class="text-xs text-slate-500 mt-0.5">${stmt.impact_statement}</div>` : ''}
-                                    ${stmt.action_statement ? `<div class="text-xs text-amber-400/80 mt-0.5">${stmt.action_statement}</div>` : ''}
+                                    ${stmt.vulnerability?.description ? `<div class="text-xs text-slate-300 mt-0.5">${esc(stmt.vulnerability.description)}</div>` : ''}
+                                    ${stmt.status_notes ? `<div class="text-xs text-slate-400 mt-0.5">${esc(stmt.status_notes)}</div>` : ''}
+                                    ${stmt.justification ? `<div class="text-xs text-slate-400 mt-0.5">${esc(stmt.justification.replace(/_/g, ' '))}</div>` : ''}
+                                    ${stmt.impact_statement ? `<div class="text-xs text-slate-500 mt-0.5">${esc(stmt.impact_statement)}</div>` : ''}
+                                    ${stmt.action_statement ? `<div class="text-xs text-amber-400/80 mt-0.5">${esc(stmt.action_statement)}</div>` : ''}
                                     ${(stmt.products && stmt.products.length) ? `
-                                        <div class="text-xs text-slate-500 mt-1 font-mono break-all">${stmt.products.map(p => p['@id'] || (p.identifiers?.purl) || '').filter(Boolean).join(', ')}</div>
+                                        <div class="text-xs text-slate-500 mt-1 font-mono break-all">${stmt.products.map(p => esc(p['@id'] || (p.identifiers?.purl) || '')).filter(Boolean).join(', ')}</div>
                                     ` : ''}
                                 </div>
                             </div>
@@ -1172,8 +1178,10 @@
 
         function renderReferrerActions(r, i) {
             const buttons = [];
+            const repo = esc(currentData?.repository);
+            const digest = esc(r.digest);
             if (r.type === 'sbom') {
-                buttons.push(`<button onclick="downloadSBOM('${currentData?.repository}', '${r.digest}', event)"
+                buttons.push(`<button data-repo="${repo}" data-digest="${digest}" onclick="downloadSBOM(this.dataset.repo, this.dataset.digest, event)"
                     class="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
@@ -1182,7 +1190,7 @@
                 </button>`);
             }
             if (r.type === 'vex') {
-                buttons.push(`<button onclick="fetchVEX('${currentData?.repository}', '${r.digest}', ${i}, event)"
+                buttons.push(`<button data-repo="${repo}" data-digest="${digest}" data-index="${i}" onclick="fetchVEX(this.dataset.repo, this.dataset.digest, +this.dataset.index, event)"
                     class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -1190,7 +1198,7 @@
                     </svg>
                     View
                 </button>`);
-                buttons.push(`<button onclick="downloadVEX('${currentData?.repository}', '${r.digest}', event)"
+                buttons.push(`<button data-repo="${repo}" data-digest="${digest}" onclick="downloadVEX(this.dataset.repo, this.dataset.digest, event)"
                     class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
@@ -1253,8 +1261,8 @@
                                                     ${typeIcons[r.type] || typeIcons.artifact}
                                                 </div>
                                                 <div class="min-w-0">
-                                                    <div class="text-sm font-semibold text-slate-200 capitalize">${r.type}</div>
-                                                    <div class="text-xs text-slate-500 font-mono truncate truncate-when-collapsed">${r.signatureInfo?.identity || r.digest}</div>
+                                                    <div class="text-sm font-semibold text-slate-200 capitalize">${esc(r.type)}</div>
+                                                    <div class="text-xs text-slate-500 font-mono truncate truncate-when-collapsed">${esc(r.signatureInfo?.identity || r.digest)}</div>
                                                 </div>
                                             </div>
                                             <div class="text-sm text-slate-400 flex-shrink-0 whitespace-nowrap">${formatBytes(r.size)}</div>
@@ -1264,11 +1272,11 @@
                                             <div class="grid grid-cols-2 gap-3 text-sm">
                                                 <div>
                                                     <span class="text-slate-500 text-xs">Artifact Type</span>
-                                                    <div class="text-xs text-slate-300 mt-1 break-all">${r.artifactType || 'N/A'}</div>
+                                                    <div class="text-xs text-slate-300 mt-1 break-all">${esc(r.artifactType) || 'N/A'}</div>
                                                 </div>
                                                 <div>
                                                     <span class="text-slate-500 text-xs">Media Type</span>
-                                                    <div class="text-xs text-slate-300 mt-1 break-all">${r.mediaType}</div>
+                                                    <div class="text-xs text-slate-300 mt-1 break-all">${esc(r.mediaType)}</div>
                                                 </div>
                                             </div>
                                             <div class="flex items-start gap-2 text-sm">
@@ -1286,13 +1294,13 @@
                                                     ${r.signatureInfo.identity ? `
                                                         <div class="text-xs mb-1">
                                                             <span class="text-slate-500">Identity:</span>
-                                                            <span class="text-amber-200 ml-1 break-all">${r.signatureInfo.identity}</span>
+                                                            <span class="text-amber-200 ml-1 break-all">${esc(r.signatureInfo.identity)}</span>
                                                         </div>
                                                     ` : ''}
                                                     ${r.signatureInfo.issuer ? `
                                                         <div class="text-xs">
                                                             <span class="text-slate-500">OIDC Issuer:</span>
-                                                            <span class="text-amber-200 ml-1 break-all">${r.signatureInfo.issuer}</span>
+                                                            <span class="text-amber-200 ml-1 break-all">${esc(r.signatureInfo.issuer)}</span>
                                                         </div>
                                                     ` : ''}
                                                 </div>
@@ -1303,8 +1311,8 @@
                                                     <div class="mt-1 space-y-1">
                                                         ${Object.entries(r.annotations).map(([k, v]) => `
                                                             <div class="text-xs">
-                                                                <span class="text-slate-500">${k.split(/[.#]/).pop()}:</span>
-                                                                <span class="text-slate-400 ml-1">${v}</span>
+                                                                <span class="text-slate-500">${esc(k.split(/[.#]/).pop())}:</span>
+                                                                <span class="text-slate-400 ml-1">${esc(v)}</span>
                                                             </div>
                                                         `).join('')}
                                                     </div>
@@ -1338,8 +1346,8 @@
                     <div id="tags-content" class="p-4">
                         <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto scrollbar-thin">
                             ${tags.map(tag => `
-                                <div class="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg hover:border-blue-500 cursor-pointer transition-colors" onclick="quickInspect('${currentData?.repository}:${tag}')">
-                                    <span class="font-mono text-sm text-slate-300">${tag}</span>
+                                <div class="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg hover:border-blue-500 cursor-pointer transition-colors" data-image="${esc(currentData?.repository + ':' + tag)}" onclick="quickInspect(this.dataset.image)">
+                                    <span class="font-mono text-sm text-slate-300">${esc(tag)}</span>
                                 </div>
                             `).join('')}
                         </div>
@@ -1533,7 +1541,7 @@
                         const refX = platformX + 15; // Center below platform
                         const refY = 205 + ri * referrerRowHeight;
                         const color = getReferrerColor(r.type);
-                        const clickHandler = r.type === 'sbom' ? `onclick="downloadSBOM('${data.repository}', '${r.digest}', event)" style="cursor: pointer"` : '';
+                        const clickHandler = r.type === 'sbom' ? `data-repo="${esc(data.repository)}" data-digest="${esc(r.digest)}" onclick="downloadSBOM(this.dataset.repo, this.dataset.digest, event)" style="cursor: pointer"` : '';
 
                         // Connection line from platform to referrer
                         platformReferrerLinesHtml += `
@@ -1547,9 +1555,9 @@
                                 <rect x="${refX}" y="${refY}" width="120" height="40" rx="6"
                                     fill="${color.fill}" fill-opacity="0.15" stroke="${color.fill}" stroke-width="1.5"/>
                                 <text x="${refX + 60}" y="${refY + 15}" text-anchor="middle" fill="${color.fill}"
-                                    font-size="10" font-weight="bold">${color.text}</text>
+                                    font-size="10" font-weight="bold">${esc(color.text)}</text>
                                 <text x="${refX + 60}" y="${refY + 30}" text-anchor="middle" fill="#94a3b8"
-                                    font-size="8" font-family="monospace">${truncateDigest(r.digest, 10)}</text>
+                                    font-size="8" font-family="monospace">${esc(truncateDigest(r.digest, 10))}</text>
                             </g>
                         `;
                     });
@@ -1572,7 +1580,7 @@
                 globalReferrers.slice(0, 6).forEach((r, i) => {
                     const refY = globalRefStartY + i * 48;
                     const color = getReferrerColor(r.type);
-                    const clickHandler = r.type === 'sbom' ? `onclick="downloadSBOM('${data.repository}', '${r.digest}', event)" style="cursor: pointer"` : '';
+                    const clickHandler = r.type === 'sbom' ? `data-repo="${esc(data.repository)}" data-digest="${esc(r.digest)}" onclick="downloadSBOM(this.dataset.repo, this.dataset.digest, event)" style="cursor: pointer"` : '';
 
                     // Connection line from image index to global referrer
                     globalReferrerLinesHtml += `
@@ -1586,9 +1594,9 @@
                             <rect x="${globalRefX}" y="${refY}" width="120" height="40" rx="6"
                                 fill="${color.fill}" fill-opacity="0.15" stroke="${color.fill}" stroke-width="1.5"/>
                             <text x="${globalRefX + 60}" y="${refY + 15}" text-anchor="middle" fill="${color.fill}"
-                                font-size="10" font-weight="bold">${color.text}</text>
+                                font-size="10" font-weight="bold">${esc(color.text)}</text>
                             <text x="${globalRefX + 60}" y="${refY + 30}" text-anchor="middle" fill="#94a3b8"
-                                font-size="8" font-family="monospace">${truncateDigest(r.digest, 10)}</text>
+                                font-size="8" font-family="monospace">${esc(truncateDigest(r.digest, 10))}</text>
                         </g>
                     `;
                 });
@@ -1642,7 +1650,7 @@
                         <rect x="375" y="20" width="150" height="60" rx="8" fill="#1e293b" stroke="#3b82f6" stroke-width="2"/>
                         <rect x="375" y="20" width="150" height="22" rx="8" fill="#3b82f6"/>
                         <text x="450" y="36" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Image Index</text>
-                        <text x="450" y="58" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">${truncateDigest(data.digest, 8)}</text>
+                        <text x="450" y="58" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">${esc(truncateDigest(data.digest, 8))}</text>
 
                         <!-- Global referrer connection lines (connect to image index) -->
                         ${globalReferrerLinesHtml}
@@ -1664,15 +1672,15 @@
                             return `
                                 <rect x="${x}" y="130" width="${platformWidth}" height="60" rx="8" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/>
                                 <rect x="${x}" y="130" width="${platformWidth}" height="22" rx="8" fill="#8b5cf6"/>
-                                <text x="${x + platformWidth / 2}" y="146" text-anchor="middle" fill="white" font-size="11" font-weight="bold">${p.platform?.os || 'unknown'}/${p.platform?.architecture || 'unknown'}${p.platform?.variant ? '/' + p.platform.variant : ''}</text>
-                                <text x="${x + platformWidth / 2}" y="168" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">${truncateDigest(p.digest, 8)}</text>
+                                <text x="${x + platformWidth / 2}" y="146" text-anchor="middle" fill="white" font-size="11" font-weight="bold">${esc(p.platform?.os || 'unknown')}/${esc(p.platform?.architecture || 'unknown')}${p.platform?.variant ? '/' + esc(p.platform.variant) : ''}</text>
+                                <text x="${x + platformWidth / 2}" y="168" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">${esc(truncateDigest(p.digest, 8))}</text>
                                 ${refCount > 0 ? `<text x="${x + platformWidth / 2}" y="182" text-anchor="middle" fill="#06b6d4" font-size="8">${refCount} referrer${refCount > 1 ? 's' : ''}</text>` : ''}
                             `;
                         }).join('') : `
                             <rect x="375" y="130" width="${platformWidth}" height="60" rx="8" fill="#1e293b" stroke="#8b5cf6" stroke-width="2"/>
                             <rect x="375" y="130" width="${platformWidth}" height="22" rx="8" fill="#8b5cf6"/>
-                            <text x="450" y="146" text-anchor="middle" fill="white" font-size="11" font-weight="bold">${data.architecture || 'unknown'}/${data.os || 'unknown'}</text>
-                            <text x="450" y="168" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">${truncateDigest(data.digest, 8)}</text>
+                            <text x="450" y="146" text-anchor="middle" fill="white" font-size="11" font-weight="bold">${esc(data.architecture || 'unknown')}/${esc(data.os || 'unknown')}</text>
+                            <text x="450" y="168" text-anchor="middle" fill="#94a3b8" font-size="9" font-family="monospace">${esc(truncateDigest(data.digest, 8))}</text>
                         `}
 
                         <!-- Platform referrer connection lines -->
@@ -1698,7 +1706,7 @@
                                 <rect x="${platformX - 5}" y="${configY}" width="160" height="50" rx="6" fill="#1e293b" stroke="#10b981" stroke-width="1.5"/>
                                 <rect x="${platformX - 5}" y="${configY}" width="160" height="18" rx="6" fill="#10b981"/>
                                 <text x="${platformCenterX}" y="${configY + 13}" text-anchor="middle" fill="white" font-size="10" font-weight="bold">Config</text>
-                                <text x="${platformCenterX}" y="${configY + 32}" text-anchor="middle" fill="#94a3b8" font-size="8">${platformConfig?.architecture || p.platform?.architecture || 'unknown'}/${platformConfig?.os || p.platform?.os || 'unknown'}</text>
+                                <text x="${platformCenterX}" y="${configY + 32}" text-anchor="middle" fill="#94a3b8" font-size="8">${esc(platformConfig?.architecture || p.platform?.architecture || 'unknown')}/${esc(platformConfig?.os || p.platform?.os || 'unknown')}</text>
                                 <text x="${platformCenterX}" y="${configY + 44}" text-anchor="middle" fill="#f59e0b" font-size="8">${platformLayers} layers</text>
                             `;
                         }).join('') : `
@@ -1709,7 +1717,7 @@
                             <rect x="${firstPlatformX - 90}" y="${configLayersY + 50}" width="140" height="60" rx="8" fill="#1e293b" stroke="#10b981" stroke-width="2"/>
                             <rect x="${firstPlatformX - 90}" y="${configLayersY + 50}" width="140" height="22" rx="8" fill="#10b981"/>
                             <text x="${firstPlatformX - 20}" y="${configLayersY + 66}" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Config</text>
-                            <text x="${firstPlatformX - 20}" y="${configLayersY + 90}" text-anchor="middle" fill="#94a3b8" font-size="9">${data.config?.architecture || 'unknown'}/${data.config?.os || 'unknown'}</text>
+                            <text x="${firstPlatformX - 20}" y="${configLayersY + 90}" text-anchor="middle" fill="#94a3b8" font-size="9">${esc(data.config?.architecture || 'unknown')}/${esc(data.config?.os || 'unknown')}</text>
                             <text x="${firstPlatformX + platformWidth + 40}" y="${configLayersY + 40}" fill="#94a3b8" font-size="11" font-weight="bold">Layers (${layers.length})</text>
                             ${layers.slice(0, 4).map((l, i) => `
                                 <rect x="${firstPlatformX + platformWidth - 30}" y="${configLayersY + 55 + i * 30}" width="140" height="26" rx="4" fill="#f59e0b" fill-opacity="${0.2 + i * 0.2}" stroke="#f59e0b"/>
