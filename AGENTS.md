@@ -2,6 +2,80 @@
 
 This document contains guidelines for AI coding agents working on this codebase.
 
+## Project Mission
+
+OCI Image Explorer aims to be the most comprehensive and technically correct way to inspect OCI images. This means:
+
+- Understanding and adhering to OCI, in-toto, and OpenVEX standards
+- Being compatible with ecosystem tools (Trivy, cosign, Notation, BuildKit)
+- Being as complete and easy to use as possible
+
+## Supply Chain Artifact Discovery
+
+OCI Explorer discovers supply chain artifacts (signatures, SBOMs, attestations, VEX) through 4 mechanisms:
+
+1. **OCI 1.1 Referrers API** (`VEXViaOCIReferrers`) — standard `GET /v2/<repo>/referrers/<digest>` endpoint
+2. **OCI Referrers Tag Schema fallback** — `<alg>-<hex>.referrers` tag for registries that don't support the Referrers API
+3. **Cosign tag scheme** (`VEXViaCosignTag`) — `.sig`, `.att` tag suffixes (e.g., `sha256-<hex>.att`)
+4. **Docker BuildKit attestation manifests** (`VEXViaBuildKit`) — SBOM/provenance layers embedded in attestation manifests referenced via `vnd.docker.reference.type: attestation-manifest`
+
+All mechanisms run unconditionally on every `InspectImage` call; results are deduplicated and merged.
+
+## VEX Support
+
+- **Format**: OpenVEX (`@context` = `https://openvex.dev/ns/v0.2.0`)
+- **Envelopes**: raw OpenVEX JSON, in-toto statement wrapping OpenVEX predicate, DSSE envelope wrapping in-toto statement
+- **Pipeline**: discover referrer → fetch attestation manifest or blob → unwrap envelope → parse OpenVEX document → return structured `VEXDocument`
+
+## Testing Philosophy
+
+- Integration tests must exercise the **full pipeline** (discover → fetch → parse), not just discovery
+- Use **pinned tags** (e.g., `:3.21.1`, `:0.2.2`) so tests are deterministic
+- Use **table-driven tests** with typed enums for discovery methods and image properties
+- Never use free-form strings where a typed constant can avoid ambiguity
+- Discovery method types are defined in `registry/client_test.go` as `VEXDiscoveryMethod`
+
+## Coding Convention: Prefer Typed Constants Over Raw Strings
+
+When a field has a known set of values (discovery methods, artifact types, VEX statuses), define a named type and constants:
+
+```go
+type VEXDiscoveryMethod string
+
+const (
+    VEXViaCosignTag    VEXDiscoveryMethod = "cosign-att-tag"
+    VEXViaOCIReferrers VEXDiscoveryMethod = "oci-referrers-api"
+    VEXViaBuildKit     VEXDiscoveryMethod = "buildkit-attestation"
+    VEXNone            VEXDiscoveryMethod = "none"
+)
+```
+
+Use human-readable const values (not opaque integers) so logs and test output are self-documenting.
+
+## Coding Convention: Pin All Versions for Reproducible Builds
+
+Always pin dependency and tool versions — never use `@latest`. This applies to:
+
+- GitHub Actions (`uses: actions/checkout@<hash> # v4`)
+- Go tool installs (`go install tool@v1.2.3`)
+- Docker base images (`FROM golang:1.24.13-alpine`)
+- Any external dependency in CI/CD workflows
+
+When a commit hash is used (e.g., for GitHub Actions), add a trailing comment with the version tag:
+
+```yaml
+- uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+- uses: sigstore/cosign-installer@c56c2d3e59e4281cc41dea2217323ba5694b171e # v3.8.0
+```
+
+## Key References
+
+- [OCI Distribution Spec 1.1](https://github.com/opencontainers/distribution-spec/blob/main/spec.md) — Referrers API
+- [OpenVEX Spec](https://github.com/openvex/spec) — VEX document format
+- [in-toto Attestation Framework](https://github.com/in-toto/attestation/tree/main/spec) — statement/predicate envelope
+- [Sigstore docs](https://docs.sigstore.dev/) — cosign signing, attestation, verification
+- [Docker BuildKit attestation docs](https://docs.docker.com/build/attestations/) — SBOM and provenance in BuildKit
+
 ## Pull Request Requirements
 
 When creating a pull request, always ensure the following are updated as part of the PR:
@@ -10,7 +84,7 @@ When creating a pull request, always ensure the following are updated as part of
 - **README.md**: Update feature lists, API endpoint docs, project structure, and any affected sections.
 - **docs/api.md**: Update endpoint documentation, request/response examples, and field tables for any API changes.
 - **docs/openapi.yaml**: Update the OpenAPI spec for any new or modified endpoints, schemas, or parameters.
-- **BLOG.md**: If the change is significant enough to warrant a blog-style write-up, update or note it.
+- **BLOG.md**: Internal notes file (git-ignored) for drafting blog-style write-ups. If the change is significant, update or note it there.
 
 Do not consider a PR complete until documentation and screenshots reflect the current state of the code.
 

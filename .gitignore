@@ -35,3 +35,6 @@ Thumbs.db
 *.test
 *.out
 coverage.txt
+
+# Internal notes
+BLOG.md

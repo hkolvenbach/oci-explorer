@@ -75,7 +75,7 @@ cosign-verify:
 verify-attestation:
 	@echo "Verifying SLSA provenance attestation..."
 	cosign verify-attestation \
-		--type slsaprovenance \
+		--type slsaprovenance1 \
 		--certificate-identity-regexp="https://github.com/hkolvenbach/oci-explorer" \
 		--certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
 		$(DOCKER_IMAGE):$(VERSION)

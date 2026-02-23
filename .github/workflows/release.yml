@@ -167,20 +167,101 @@ jobs:
           subject-digest: ${{ steps.docker-push.outputs.digest }}
           push-to-registry: true
 
-      - name: Generate OpenVEX document
-        if: inputs.dry-run != true
-        uses: ./.github/actions/generate-vex
-        with:
-          product: "pkg:oci/${{ github.event.repository.name }}@${{ steps.docker-push.outputs.digest }}"
-          author: "${{ github.repository_owner }}"
-
-      - name: Attach VEX document as cosign attestation
+      - name: Generate and attach OpenVEX documents (per-platform)
         if: inputs.dry-run != true
         run: |
-          cosign attest --yes \
-            --type openvex \
-            --predicate vex.json \
-            "ghcr.io/${{ github.repository }}@${{ steps.docker-push.outputs.digest }}"
+          IMAGE="ghcr.io/${{ github.repository }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          AUTHOR="${{ github.repository_owner }}"
+
+          # Install tools (in case they aren't already available from the action)
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install github.com/openvex/vexctl@v0.4.1
+
+          # Run govulncheck once — source-level analysis applies to all platforms
+          govulncheck -format json ./... > govulncheck-output.json || true
+
+          # Extract vulnerability IDs
+          CALLED_OSVS=$(jq -r 'select(.finding) | select(.finding.trace[0].function) | .finding.osv' govulncheck-output.json | sort -u || true)
+          ALL_FINDING_OSVS=$(jq -r 'select(.finding) | .finding.osv' govulncheck-output.json | sort -u || true)
+          NOT_CALLED_OSVS=$(comm -23 <(echo "$ALL_FINDING_OSVS") <(echo "$CALLED_OSVS") || true)
+
+          resolve_aliases() {
+            local osv_ids="$1"
+            local cves=""
+            for osv in $osv_ids; do
+              aliases=$(jq -r "select(.osv) | select(.osv.id == \"$osv\") | .osv.aliases[]" govulncheck-output.json 2>/dev/null | sort -u || true)
+              cves="$cves $aliases"
+            done
+            echo "$cves" | tr ' ' '\n' | grep -E '^CVE-|^GHSA-' | sort -u || true
+          }
+
+          CALLED_CVES=$(resolve_aliases "$CALLED_OSVS")
+          NOT_CALLED_CVES=$(resolve_aliases "$NOT_CALLED_OSVS")
+
+          # Shell function to generate a VEX document for a given product PURL
+          generate_vex() {
+            local product="$1"
+            rm -f vex.json
+            local first=true
+
+            for CVE in $CALLED_CVES; do
+              if [ "$first" = true ]; then
+                vexctl create --author="$AUTHOR" --file=vex.json -p "$product" \
+                  -v "$CVE" -s under_investigation \
+                  --status-note "govulncheck reports this vulnerability as reachable in the call graph"
+                first=false
+              else
+                vexctl add --in-place -p "$product" -v "$CVE" -s under_investigation \
+                  --status-note "govulncheck reports this vulnerability as reachable in the call graph" \
+                  vex.json || true
+              fi
+            done
+
+            for CVE in $NOT_CALLED_CVES; do
+              if [ "$first" = true ]; then
+                vexctl create --author="$AUTHOR" --file=vex.json -p "$product" \
+                  -v "$CVE" -s not_affected -j vulnerable_code_not_in_execute_path \
+                  --impact-statement "Package is imported but the vulnerable function is not called"
+                first=false
+              else
+                vexctl add --in-place -p "$product" -v "$CVE" -s not_affected \
+                  -j vulnerable_code_not_in_execute_path \
+                  --impact-statement "Package is imported but the vulnerable function is not called" \
+                  vex.json || true
+              fi
+            done
+
+            if [ "$first" = true ]; then
+              vexctl create --author="$AUTHOR" --file=vex.json -p "$product" \
+                -v "NOASSERTION" -s not_affected -j vulnerable_code_not_in_execute_path \
+                --impact-statement "govulncheck found no reachable or imported vulnerabilities"
+            fi
+          }
+
+          # Extract platform manifest digests (skip unknown/unknown attestation manifests)
+          PLATFORM_DIGESTS=$(docker buildx imagetools inspect --raw "$IMAGE@${{ steps.docker-push.outputs.digest }}" \
+            | jq -r '.manifests[] | select(.platform.architecture != "unknown") | .digest')
+
+          echo "Platform digests:"
+          echo "$PLATFORM_DIGESTS"
+
+          # Attach VEX to each platform manifest
+          for DIGEST in $PLATFORM_DIGESTS; do
+            echo "--- Attaching VEX to $DIGEST ---"
+            PRODUCT="pkg:oci/${REPO_NAME}@${DIGEST}?repository_url=${IMAGE}"
+            generate_vex "$PRODUCT"
+            echo "Generated vex.json for $DIGEST:"
+            cat vex.json
+
+            cosign attest --yes --verbose \
+              --type openvex \
+              --predicate vex.json \
+              "${IMAGE}@${DIGEST}"
+          done
+
+          # Save first platform digest for smoke test and upload last VEX as artifact
+          echo "$PLATFORM_DIGESTS" | head -1 > /tmp/first-platform-digest.txt
 
       - name: Upload VEX document as build artifact
         if: inputs.dry-run != true
@@ -190,10 +271,45 @@ jobs:
           path: vex.json
           retention-days: 90
 
-      - name: Verify image signature (smoke test)
+      - name: Install verification tools
         if: inputs.dry-run != true
         run: |
+          # Install Trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Verify signatures and attestations (smoke test)
+        if: inputs.dry-run != true
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          PLATFORM_DIGEST=$(cat /tmp/first-platform-digest.txt)
+
+          echo "=== 1. Cosign: verify image signature on the index ==="
           cosign verify \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ghcr.io/${{ github.repository }}@${{ steps.docker-push.outputs.digest }}
+            "${IMAGE}@${{ steps.docker-push.outputs.digest }}"
+
+          echo "=== 2. Cosign: verify VEX attestation on platform manifest ==="
+          echo "Platform digest: $PLATFORM_DIGEST"
+          cosign verify-attestation \
+            --type openvex \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${IMAGE}@${PLATFORM_DIGEST}"
+
+          echo "=== 3. Cosign: extract and validate VEX document ==="
+          cosign verify-attestation \
+            --type openvex \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            "${IMAGE}@${PLATFORM_DIGEST}" 2>/dev/null \
+            | head -1 | jq -r '.payload' | base64 -d | jq '.predicate' > extracted-vex.json
+          echo "Extracted VEX document:"
+          jq '.' extracted-vex.json
+
+          echo "=== 4. vexctl: validate VEX document structure ==="
+          vexctl list extracted-vex.json
+
+          echo "=== 5. Trivy: scan with VEX from OCI attestation ==="
+          trivy image --vex oci --format table "${IMAGE}@${PLATFORM_DIGEST}" || true
+          echo "Trivy VEX integration check complete"

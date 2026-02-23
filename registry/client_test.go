@@ -1358,3 +1358,147 @@ func TestVEXDocumentParsing(t *testing.T) {
 		t.Errorf("Expected action_statement on statement 3, got %q", stmt3.ActionStatement)
 	}
 }
+
+// VEXDiscoveryMethod identifies how VEX information is attached to an OCI image.
+type VEXDiscoveryMethod string
+
+const (
+	// VEXViaCosignTag — VEX attached via cosign's .att tag scheme (sha256-<hex>.att)
+	VEXViaCosignTag VEXDiscoveryMethod = "cosign-att-tag"
+	// VEXViaOCIReferrers — VEX discovered via OCI 1.1 Referrers API
+	VEXViaOCIReferrers VEXDiscoveryMethod = "oci-referrers-api"
+	// VEXViaBuildKit — VEX embedded in Docker BuildKit attestation manifest layers
+	VEXViaBuildKit VEXDiscoveryMethod = "buildkit-attestation"
+	// VEXNone — no VEX attached (tests graceful absence)
+	VEXNone VEXDiscoveryMethod = "none"
+)
+
+// TestVEXEndToEnd exercises the full VEX pipeline: discovery → fetch → parse → validate.
+// Each subtest proves that OCI Explorer can process VEX end-to-end for a specific
+// discovery/envelope method. The discoveryMethods field is documentation metadata —
+// InspectImage runs all mechanisms transparently.
+func TestVEXEndToEnd(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	tests := []struct {
+		name             string
+		image            string
+		discoveryMethods []VEXDiscoveryMethod // which mechanisms should find VEX
+		expectVEX        bool
+		minStatements    int
+	}{
+		{
+			name:             "cosign tag scheme (.att) — dmitriylewen/alpine:3.21.1",
+			image:            "dmitriylewen/alpine:3.21.1",
+			discoveryMethods: []VEXDiscoveryMethod{VEXViaCosignTag},
+			expectVEX:        true,
+			minStatements:    1,
+		},
+		{
+			name:             "cosign tag + OCI referrers coexistence — dmitriylewen/alpine:3.21.2",
+			image:            "dmitriylewen/alpine:3.21.2",
+			discoveryMethods: []VEXDiscoveryMethod{VEXViaCosignTag, VEXViaOCIReferrers},
+			expectVEX:        true,
+			minStatements:    1,
+		},
+		{
+			name:             "full supply chain — ghcr.io/hkolvenbach/oci-explorer:0.2.2",
+			image:            "ghcr.io/hkolvenbach/oci-explorer:0.2.2",
+			discoveryMethods: []VEXDiscoveryMethod{VEXViaCosignTag, VEXViaOCIReferrers},
+			expectVEX:        true,
+			minStatements:    1,
+		},
+		{
+			name:             "no VEX — ghcr.io/aquasecurity/trivy:0.69.1",
+			image:            "ghcr.io/aquasecurity/trivy:0.69.1",
+			discoveryMethods: []VEXDiscoveryMethod{VEXNone},
+			expectVEX:        false,
+			minStatements:    0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			SetVerbose(true)
+			defer SetVerbose(false)
+
+			client := NewClient()
+
+			t.Logf("Discovery methods: %v", tt.discoveryMethods)
+
+			// Step 1: Discover all referrers
+			info, err := client.InspectImage(tt.image)
+			if err != nil {
+				t.Fatalf("InspectImage(%s) failed: %v", tt.image, err)
+			}
+
+			t.Logf("Digest: %s", info.Digest)
+			t.Logf("Total referrers: %d", len(info.Referrers))
+
+			// Step 2: Find VEX referrers
+			var vexReferrers []Referrer
+			for _, ref := range info.Referrers {
+				t.Logf("  Referrer: type=%s, artifactType=%s, digest=%s",
+					ref.Type, ref.ArtifactType, truncateDigest(ref.Digest))
+				if ref.Type == "vex" {
+					vexReferrers = append(vexReferrers, ref)
+				}
+			}
+
+			if !tt.expectVEX {
+				// Step 4 (no VEX): Assert graceful absence
+				if len(vexReferrers) != 0 {
+					t.Errorf("Expected 0 VEX referrers, got %d", len(vexReferrers))
+				}
+				return
+			}
+
+			// Step 3 (expect VEX): Assert ≥ 1 VEX referrer found
+			if len(vexReferrers) == 0 {
+				t.Fatalf("Expected ≥1 VEX referrer, got 0 (referrer types: %v)",
+					referrerTypeCounts(info.Referrers))
+			}
+
+			// Fetch and parse the first VEX referrer
+			vexRef := vexReferrers[0]
+			t.Logf("Fetching VEX content: repository=%s, digest=%s",
+				info.Repository, truncateDigest(vexRef.Digest))
+
+			doc, err := client.FetchVEXContent(info.Repository, vexRef.Digest)
+			if err != nil {
+				t.Fatalf("FetchVEXContent failed: %v", err)
+			}
+
+			// Validate OpenVEX document structure
+			if !strings.Contains(doc.Context, "openvex") {
+				t.Errorf("Expected @context containing 'openvex', got %q", doc.Context)
+			}
+
+			if len(doc.Statements) < tt.minStatements {
+				t.Errorf("Expected ≥%d statements, got %d", tt.minStatements, len(doc.Statements))
+			}
+
+			// Validate each statement has non-empty Status and Vulnerability.Name
+			for i, stmt := range doc.Statements {
+				if stmt.Status == "" {
+					t.Errorf("Statement %d: Status is empty", i)
+				}
+				if stmt.Vulnerability.Name == "" {
+					t.Errorf("Statement %d: Vulnerability.Name is empty", i)
+				}
+				t.Logf("  Statement %d: vuln=%s status=%s", i, stmt.Vulnerability.Name, stmt.Status)
+			}
+		})
+	}
+}
+
+// referrerTypeCounts returns a map of referrer type → count for diagnostics.
+func referrerTypeCounts(refs []Referrer) map[string]int {
+	counts := make(map[string]int)
+	for _, r := range refs {
+		counts[r.Type]++
+	}
+	return counts
+}

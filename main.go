@@ -124,13 +124,18 @@ func main() {
 	logVerbose("  - GET /docs/{file}")
 	r.PathPrefix("/docs/").HandlerFunc(docsHandler.ServeDocs)
 
-	// Serve embedded web files
+	// Serve embedded web files with cache-busting headers for HTML
 	logVerbose("Setting up embedded web file server...")
 	webContent, err := fs.Sub(webFS, "web")
 	if err != nil {
 		log.Fatal(err)
 	}
-	r.PathPrefix("/").Handler(http.FileServer(http.FS(webContent)))
+	webFileServer := http.FileServer(http.FS(webContent))
+	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// Prevent browsers from caching stale HTML after binary upgrades
+		w.Header().Set("Cache-Control", "no-cache")
+		webFileServer.ServeHTTP(w, req)
+	})
 
 	// CORS middleware
 	logVerbose("Applying CORS middleware...")
