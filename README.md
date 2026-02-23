@@ -243,7 +243,7 @@ cosign verify \
 
 ```bash
 cosign verify-attestation \
-  --type slsaprovenance \
+  --type slsaprovenance1 \
   --certificate-identity-regexp="https://github.com/hkolvenbach/oci-explorer" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   ghcr.io/hkolvenbach/oci-explorer:latest
@@ -262,7 +262,9 @@ cosign verify-attestation \
 ### Verify binary provenance (GitHub Artifact Attestation)
 
 ```bash
-gh attestation verify oci-explorer-*-linux-amd64.tar.gz \
+gh release download v0.2.2 --repo hkolvenbach/oci-explorer \
+  --pattern 'oci-explorer-*-linux-amd64.tar.gz'
+gh attestation verify oci-explorer-0.2.2-linux-amd64.tar.gz \
   --repo hkolvenbach/oci-explorer
 ```
 
