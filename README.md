@@ -230,6 +230,14 @@ curl "http://localhost:8080/api/inspect?image=gcr.io/distroless/static:latest"
 
 ### Find Matching Tags
 
+**Supported registry** (Docker Hub) — shows all tags sharing the same digest, with the queried tag marked "current":
+
+![Matching tags — supported registry](docs/screenshots/matching-tags-supported.png)
+
+**Unsupported registry** (GHCR) — shows a warning explaining the limitation:
+
+![Matching tags — unsupported registry](docs/screenshots/matching-tags-unsupported.png)
+
 ```bash
 # Docker Hub — discover that alpine:latest is also tagged 3.23.3, 3.23, 3
 curl "http://localhost:8080/api/matching-tags?image=alpine:latest"

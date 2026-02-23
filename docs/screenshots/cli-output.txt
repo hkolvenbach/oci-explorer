@@ -3,6 +3,6 @@
 ├─────────────────────────────────────────────────┤
 │  URL:      http://localhost:8080                │
 │  Platform: darwin/arm64                         │
-│  Version:  0.1.0                                │
+│  Version:  0.2.2-10-g901e8ea-dev+901e8ea        │
 │  Press Ctrl+C to stop                           │
 └─────────────────────────────────────────────────┘
