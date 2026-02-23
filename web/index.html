@@ -31,7 +31,7 @@
         .score-ring { transition: stroke-dashoffset 0.8s ease-out; animation: scoreRingFill 0.8s ease-out; }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen">
+<body class="bg-slate-900 text-slate-100 min-h-screen overflow-x-hidden">
     <div id="app">
         <!-- Header -->
         <header class="bg-slate-800 border-b border-slate-700 sticky top-0 z-10">
@@ -501,6 +501,19 @@
                     target.classList.toggle('hidden');
                     el.classList.toggle('border-slate-500');
                     el.classList.toggle('bg-slate-700/50');
+                    // Toggle truncation on header text when expanding/collapsing
+                    const isExpanded = !target.classList.contains('hidden');
+                    el.querySelectorAll('.truncate-when-collapsed').forEach(t => {
+                        if (isExpanded) {
+                            t.style.whiteSpace = 'normal';
+                            t.style.textOverflow = 'clip';
+                            t.style.wordBreak = 'break-all';
+                        } else {
+                            t.style.whiteSpace = '';
+                            t.style.textOverflow = '';
+                            t.style.wordBreak = '';
+                        }
+                    });
                 });
             });
         }
@@ -602,21 +615,21 @@
 
             return `
                 <!-- Image Summary -->
-                <div class="bg-slate-800 border border-slate-700 rounded-lg p-5 mb-6 fade-in">
-                    <div class="flex items-stretch gap-8">
-                        <!-- Security Score (left) -->
-                        <div class="flex-shrink-0 border-r border-slate-700 pr-8 py-2">
+                <div class="bg-slate-800 border border-slate-700 rounded-lg p-5 mb-6 fade-in overflow-hidden">
+                    <div class="flex flex-col md:flex-row md:items-stretch gap-6 md:gap-8">
+                        <!-- Security Score (top on mobile, left on desktop) -->
+                        <div class="flex-shrink-0 md:border-r border-b md:border-b-0 border-slate-700 pb-4 md:pb-0 md:pr-8 md:py-2">
                             ${renderSecurityScoreCell(scoreResult)}
                         </div>
-                        <!-- Image Info (right) -->
+                        <!-- Image Info -->
                         <div class="flex-1 min-w-0">
                             <div class="flex items-start justify-between flex-wrap gap-4">
-                                <div>
-                                    <div class="flex items-center gap-3">
-                                        <svg class="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <div class="min-w-0">
+                                    <div class="flex items-start gap-3 min-w-0">
+                                        <svg class="w-6 h-6 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
                                         </svg>
-                                        <h2 class="text-lg font-semibold font-mono">${data.repository}</h2>
+                                        <h2 class="text-lg font-semibold font-mono break-all">${data.repository}</h2>
                                     </div>
                                     <div class="flex items-center gap-2 mt-2 flex-wrap">
                                         ${(data.tags || []).slice(0, 5).map(tag => `
@@ -760,17 +773,17 @@
                                 <p>No platforms match the selected filter</p>
                             </div>
                         ` : validManifests.map((m, i) => `
-                            <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer" data-expand="index-detail-${i}">
-                                <div class="flex items-start justify-between">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30">${i}</div>
-                                        <div>
-                                            <div class="text-sm font-mono text-slate-300">${truncateDigest(m.digest, 16)}</div>
+                            <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer overflow-hidden" data-expand="index-detail-${i}">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="flex items-start gap-3 min-w-0">
+                                        <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30 flex-shrink-0">${i}</div>
+                                        <div class="min-w-0">
+                                            <div class="text-sm font-mono text-slate-300 truncate truncate-when-collapsed">${m.digest}</div>
                                             <div class="text-xs text-slate-500">${m.platform ? `${m.platform.os}/${m.platform.architecture}${m.platform.variant ? '/' + m.platform.variant : ''}` : 'unknown'}</div>
                                         </div>
                                     </div>
-                                    <div class="text-right">
-                                        <div class="text-sm font-medium text-slate-300">${formatBytes(m.size)}</div>
+                                    <div class="text-right flex-shrink-0">
+                                        <div class="text-sm font-medium text-slate-300 whitespace-nowrap">${formatBytes(m.size)}</div>
                                     </div>
                                 </div>
                                 <div id="index-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 text-sm space-y-2">
@@ -807,17 +820,17 @@
                     </button>
                     <div id="layers-content" class="p-4 space-y-2">
                         ${layers.map((l, i) => `
-                            <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer" data-expand="layer-detail-${i}">
-                                <div class="flex items-start justify-between">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">${i}</div>
-                                        <div>
-                                            <div class="text-sm font-mono text-slate-300">${truncateDigest(l.digest, 16)}</div>
+                            <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer overflow-hidden" data-expand="layer-detail-${i}">
+                                <div class="flex items-start justify-between gap-2">
+                                    <div class="flex items-start gap-3 min-w-0">
+                                        <div class="w-8 h-8 rounded-md flex items-center justify-center text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex-shrink-0">${i}</div>
+                                        <div class="min-w-0">
+                                            <div class="text-sm font-mono text-slate-300 truncate truncate-when-collapsed">${l.digest}</div>
                                             <div class="text-xs text-slate-500">${l.mediaType?.split('.').pop().replace('+', ' ')}</div>
                                         </div>
                                     </div>
-                                    <div class="text-right">
-                                        <div class="text-sm font-medium text-slate-300">${formatBytes(l.size)}</div>
+                                    <div class="text-right flex-shrink-0">
+                                        <div class="text-sm font-medium text-slate-300 whitespace-nowrap">${formatBytes(l.size)}</div>
                                     </div>
                                 </div>
                                 <div id="layer-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 text-sm space-y-2">
@@ -1115,6 +1128,37 @@
             `;
         }
 
+        function renderReferrerActions(r, i) {
+            const buttons = [];
+            if (r.type === 'sbom') {
+                buttons.push(`<button onclick="downloadSBOM('${currentData?.repository}', '${r.digest}', event)"
+                    class="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    Download
+                </button>`);
+            }
+            if (r.type === 'vex') {
+                buttons.push(`<button onclick="fetchVEX('${currentData?.repository}', '${r.digest}', ${i}, event)"
+                    class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                    View
+                </button>`);
+                buttons.push(`<button onclick="downloadVEX('${currentData?.repository}', '${r.digest}', event)"
+                    class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                    </svg>
+                    Download
+                </button>`);
+            }
+            return buttons.length > 0 ? `<div class="flex items-center gap-2 flex-wrap">${buttons.join('')}</div>` : '';
+        }
+
         function renderReferrersSection(referrers, totalCount = referrers.length) {
             const typeIcons = {
                 signature: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>',
@@ -1160,47 +1204,20 @@
                         ` : `
                             <div class="space-y-3">
                                 ${referrers.map((r, i) => `
-                                    <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer" data-expand="referrer-detail-${i}">
-                                        <div class="flex items-start justify-between">
-                                            <div class="flex items-center gap-3">
-                                                <div class="w-10 h-10 rounded-md flex items-center justify-center border ${typeColors[r.type] || typeColors.artifact}">
+                                    <div class="border border-slate-700 rounded-lg p-3 bg-slate-800/30 hover:border-slate-500 transition-all cursor-pointer overflow-hidden" data-expand="referrer-detail-${i}">
+                                        <div class="flex items-start justify-between gap-2">
+                                            <div class="flex items-start gap-3 min-w-0">
+                                                <div class="w-10 h-10 rounded-md flex items-center justify-center border flex-shrink-0 ${typeColors[r.type] || typeColors.artifact}">
                                                     ${typeIcons[r.type] || typeIcons.artifact}
                                                 </div>
-                                                <div>
+                                                <div class="min-w-0">
                                                     <div class="text-sm font-semibold text-slate-200 capitalize">${r.type}</div>
-                                                    <div class="text-xs text-slate-500 font-mono">${r.signatureInfo?.identity ? r.signatureInfo.identity : truncateDigest(r.digest, 12)}</div>
+                                                    <div class="text-xs text-slate-500 font-mono truncate truncate-when-collapsed">${r.signatureInfo?.identity || r.digest}</div>
                                                 </div>
                                             </div>
-                                            <div class="flex items-center gap-2">
-                                                ${r.type === 'sbom' ? `
-                                                    <button onclick="downloadSBOM('${currentData?.repository}', '${r.digest}', event)"
-                                                        class="px-3 py-1.5 bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
-                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                                                        </svg>
-                                                        Download
-                                                    </button>
-                                                ` : ''}
-                                                ${r.type === 'vex' ? `
-                                                    <button onclick="fetchVEX('${currentData?.repository}', '${r.digest}', ${i}, event)"
-                                                        class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
-                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
-                                                        </svg>
-                                                        View
-                                                    </button>
-                                                    <button onclick="downloadVEX('${currentData?.repository}', '${r.digest}', event)"
-                                                        class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors">
-                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                                                        </svg>
-                                                        Download
-                                                    </button>
-                                                ` : ''}
-                                                <div class="text-sm text-slate-400">${formatBytes(r.size)}</div>
-                                            </div>
+                                            <div class="text-sm text-slate-400 flex-shrink-0 whitespace-nowrap">${formatBytes(r.size)}</div>
                                         </div>
+                                        ${renderReferrerActions(r, i) ? `<div class="mt-2 ml-[52px]">${renderReferrerActions(r, i)}</div>` : ''}
                                         <div id="referrer-detail-${i}" class="hidden mt-3 pt-3 border-t border-slate-700 space-y-3">
                                             <div class="grid grid-cols-2 gap-3 text-sm">
                                                 <div>
