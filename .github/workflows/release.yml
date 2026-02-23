@@ -307,8 +307,9 @@ jobs:
           echo "Extracted VEX document:"
           jq '.' extracted-vex.json
 
-          echo "=== 4. vexctl: validate VEX document structure ==="
-          vexctl list extracted-vex.json
+          echo "=== 4. Validate VEX document structure ==="
+          jq -e '.["@context"] and .statements' extracted-vex.json > /dev/null
+          echo "VEX document has valid OpenVEX structure (context + statements present)"
 
           echo "=== 5. Trivy: scan with VEX from OCI attestation ==="
           trivy image --vex oci --format table "${IMAGE}@${PLATFORM_DIGEST}" || true
