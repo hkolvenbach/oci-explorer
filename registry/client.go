@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"strings"
 	"sync"
 
@@ -19,7 +18,6 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -718,48 +716,19 @@ func (c *Client) populateFromImage(info *ImageInfo, desc *remote.Descriptor) err
 }
 
 func (c *Client) fetchReferrers(ref name.Reference, digest string) ([]Referrer, error) {
-	referrers := []Referrer{}
+	var referrers []Referrer
 
-	repo := ref.Context()
-	digestParts := strings.Split(digest, ":")
-	if len(digestParts) != 2 {
-		logVerbose("Invalid digest format for referrers lookup: %s", digest)
+	d, err := name.NewDigest(fmt.Sprintf("%s@%s", ref.Context().String(), digest))
+	if err != nil {
+		logVerbose("Invalid digest for referrers lookup: %s: %v", digest, err)
 		return referrers, nil
 	}
 
-	// First, try the OCI 1.1 Referrers API endpoint: GET /v2/<name>/referrers/<digest>
-	logVerbose("Trying OCI 1.1 Referrers API: /v2/%s/referrers/%s", repo.RepositoryStr(), digest)
-	apiReferrers, err := c.fetchReferrersViaAPI(repo, digest)
-	if err == nil && len(apiReferrers) > 0 {
-		logVerbose("Found %d referrers via Referrers API", len(apiReferrers))
-		return apiReferrers, nil
-	}
+	// remote.Referrers handles both the OCI 1.1 Referrers API and the tag-schema fallback
+	logVerbose("Fetching referrers for %s", truncateDigest(digest))
+	idx, err := remote.Referrers(d, remote.WithAuthFromKeychain(c.keychain))
 	if err != nil {
-		logVerbose("Referrers API not available or failed: %v", err)
-	} else {
-		logVerbose("Referrers API returned empty result, trying tag schema fallback")
-	}
-
-	// Fallback: Try referrers tag schema (sha256-<hash>)
-	referrersTag := fmt.Sprintf("sha256-%s", digestParts[1])
-	logVerbose("Falling back to tag schema: %s:%s", repo.String(), referrersTag)
-
-	tagRef, err := name.NewTag(fmt.Sprintf("%s:%s", repo.String(), referrersTag))
-	if err != nil {
-		logVerbose("Failed to create referrers tag reference: %v", err)
-		return referrers, nil
-	}
-
-	desc, err := remote.Get(tagRef, remote.WithAuthFromKeychain(c.keychain))
-	if err != nil {
-		logVerbose("No referrers found via tag schema (this is normal for images without attached artifacts)")
-		return referrers, nil
-	}
-	logVerbose("Found referrers index at tag %s", referrersTag)
-
-	idx, err := desc.ImageIndex()
-	if err != nil {
-		logVerbose("Failed to parse referrers index: %v", err)
+		logVerbose("Failed to fetch referrers for %s: %v", truncateDigest(digest), err)
 		return referrers, nil
 	}
 
@@ -768,7 +737,7 @@ func (c *Client) fetchReferrers(ref name.Reference, digest string) ([]Referrer, 
 		logVerbose("Failed to get referrers index manifest: %v", err)
 		return referrers, nil
 	}
-	logVerbose("Referrers index contains %d artifacts", len(indexManifest.Manifests))
+	logVerbose("Found %d referrers for %s", len(indexManifest.Manifests), truncateDigest(digest))
 
 	for i, m := range indexManifest.Manifests {
 		refType := classifyArtifactType(string(m.ArtifactType), m.Annotations)
@@ -781,121 +750,6 @@ func (c *Client) fetchReferrers(ref name.Reference, digest string) ([]Referrer, 
 			Digest:       m.Digest.String(),
 			Size:         m.Size,
 			ArtifactType: string(m.ArtifactType),
-			Annotations:  m.Annotations,
-		})
-	}
-
-	return referrers, nil
-}
-
-// ReferrersResponse represents the response from the OCI Referrers API
-type ReferrersResponse struct {
-	SchemaVersion int                     `json:"schemaVersion"`
-	MediaType     string                  `json:"mediaType"`
-	Manifests     []ReferrerManifestEntry `json:"manifests"`
-}
-
-// ReferrerManifestEntry represents a single referrer in the API response
-type ReferrerManifestEntry struct {
-	MediaType    string            `json:"mediaType"`
-	Digest       string            `json:"digest"`
-	Size         int64             `json:"size"`
-	ArtifactType string            `json:"artifactType"`
-	Annotations  map[string]string `json:"annotations,omitempty"`
-}
-
-// fetchReferrersViaAPI uses the OCI 1.1 Referrers API endpoint
-func (c *Client) fetchReferrersViaAPI(repo name.Repository, digest string) ([]Referrer, error) {
-	// Build the referrers API URL
-	// Format: GET /v2/<name>/referrers/<digest>
-	registry := repo.Registry
-	scheme := "https"
-	if registry.Scheme() != "" {
-		scheme = registry.Scheme()
-	}
-
-	url := fmt.Sprintf("%s://%s/v2/%s/referrers/%s",
-		scheme,
-		registry.RegistryStr(),
-		repo.RepositoryStr(),
-		digest,
-	)
-	logVerbose("Referrers API URL: %s", url)
-
-	// Get authentication for the registry
-	auth, err := c.keychain.Resolve(repo)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get auth: %w", err)
-	}
-
-	// Create transport with authentication
-	tr, err := transport.NewWithContext(
-		context.Background(),
-		repo.Registry,
-		auth,
-		http.DefaultTransport,
-		[]string{repo.Scope(transport.PullScope)},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create transport: %w", err)
-	}
-
-	// Make the request
-	client := &http.Client{Transport: tr}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Set Accept header for OCI index
-	req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json")
-
-	logVerbose("Sending GET request to Referrers API...")
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	logVerbose("Referrers API response status: %d %s", resp.StatusCode, resp.Status)
-
-	if resp.StatusCode == http.StatusNotFound {
-		// 404 means the registry doesn't support the Referrers API
-		return nil, fmt.Errorf("referrers API not supported (404)")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status: %s", resp.Status)
-	}
-
-	// Read and parse the response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	logVerbose("Referrers API response body length: %d bytes", len(body))
-
-	var referrersResp ReferrersResponse
-	if err := json.Unmarshal(body, &referrersResp); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	logVerbose("Referrers API returned %d manifests", len(referrersResp.Manifests))
-
-	// Convert to our Referrer type
-	referrers := make([]Referrer, 0, len(referrersResp.Manifests))
-	for i, m := range referrersResp.Manifests {
-		refType := classifyArtifactType(m.ArtifactType, m.Annotations)
-		logVerbose("  Referrer %d: type=%s, artifactType=%s, digest=%s, size=%d",
-			i, refType, m.ArtifactType, truncateDigest(m.Digest), m.Size)
-
-		referrers = append(referrers, Referrer{
-			Type:         refType,
-			MediaType:    m.MediaType,
-			Digest:       m.Digest,
-			Size:         m.Size,
-			ArtifactType: m.ArtifactType,
 			Annotations:  m.Annotations,
 		})
 	}
@@ -964,6 +818,28 @@ func (c *Client) fetchCosignTagArtifacts(ref name.Reference, digest string) ([]R
 	return allReferrers, nil
 }
 
+// InTotoAttestation represents an in-toto attestation envelope, covering both
+// standard in-toto statements and DSSE envelopes.
+type InTotoAttestation struct {
+	Type          string          `json:"_type"`
+	Subject       json.RawMessage `json:"subject"`
+	PredicateType string          `json:"predicateType"`
+	Predicate     json.RawMessage `json:"predicate"`
+	// DSSE envelope fields
+	PayloadType string `json:"payloadType"`
+	Payload     string `json:"payload"`
+}
+
+// findLayerByPredicate returns the first layer descriptor whose predicate type matches any keyword.
+func findLayerByPredicate(layers []v1.Descriptor, keywords ...string) *v1.Descriptor {
+	for i, layer := range layers {
+		if containsAny(getPredicateType(layer.Annotations), keywords...) {
+			return &layers[i]
+		}
+	}
+	return nil
+}
+
 // FetchSBOMContent retrieves the actual SBOM content from an attestation manifest
 func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, string, error) {
 	logVerbose("Fetching SBOM content from %s@%s", repository, digest)
@@ -992,72 +868,45 @@ func (c *Client) FetchSBOMContent(repository string, digest string) ([]byte, str
 
 	logVerbose("Searching for SBOM layer in %d layers", len(manifest.Layers))
 
-	// Find the SBOM layer
-	for _, layer := range manifest.Layers {
-		predicateType := ""
-		if pt, ok := layer.Annotations["in-toto.io/predicate-type"]; ok {
-			predicateType = pt
-		}
-
-		predicateLower := strings.ToLower(predicateType)
-		if strings.Contains(predicateLower, "spdx") ||
-			strings.Contains(predicateLower, "cyclonedx") ||
-			strings.Contains(predicateLower, "sbom") ||
-			strings.Contains(predicateLower, "syft") {
-
-			logVerbose("Found SBOM layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), predicateType)
-
-			// Fetch the layer blob
-			repo := manifestRef.Context()
-			layerRef, err := name.NewDigest(fmt.Sprintf("%s@%s", repo.String(), layer.Digest.String()))
-			if err != nil {
-				return nil, "", fmt.Errorf("invalid layer reference: %w", err)
-			}
-
-			blob, err := remote.Layer(layerRef, remote.WithAuthFromKeychain(c.keychain))
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to fetch layer: %w", err)
-			}
-
-			reader, err := blob.Compressed()
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to read layer: %w", err)
-			}
-			defer reader.Close()
-
-			// Read the attestation data
-			attestationData, err := io.ReadAll(reader)
-			if err != nil {
-				return nil, "", fmt.Errorf("failed to read attestation data: %w", err)
-			}
-
-			logVerbose("Read %d bytes from SBOM layer", len(attestationData))
-
-			// Try to parse as in-toto attestation and extract the predicate
-			var attestation struct {
-				Type          string          `json:"_type"`
-				Subject       json.RawMessage `json:"subject"`
-				PredicateType string          `json:"predicateType"`
-				Predicate     json.RawMessage `json:"predicate"`
-			}
-
-			if err := json.Unmarshal(attestationData, &attestation); err == nil && len(attestation.Predicate) > 0 {
-				// Return just the predicate (the actual SBOM)
-				logVerbose("Extracted SBOM predicate from in-toto attestation")
-				// Pretty print the JSON
-				var prettyJSON bytes.Buffer
-				if err := json.Indent(&prettyJSON, attestation.Predicate, "", "  "); err == nil {
-					return prettyJSON.Bytes(), "application/json", nil
-				}
-				return attestation.Predicate, "application/json", nil
-			}
-
-			// Return raw data if not in-toto format
-			return attestationData, "application/json", nil
-		}
+	layer := findLayerByPredicate(manifest.Layers, "spdx", "cyclonedx", "sbom", "syft")
+	if layer == nil {
+		return nil, "", fmt.Errorf("no SBOM layer found in attestation manifest")
 	}
 
-	return nil, "", fmt.Errorf("no SBOM layer found in attestation manifest")
+	logVerbose("Found SBOM layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), getPredicateType(layer.Annotations))
+
+	// Fetch the layer blob using the image we already have
+	blob, err := img.LayerByDigest(layer.Digest)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to fetch layer: %w", err)
+	}
+
+	reader, err := blob.Compressed()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read layer: %w", err)
+	}
+	defer reader.Close()
+
+	attestationData, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read attestation data: %w", err)
+	}
+
+	logVerbose("Read %d bytes from SBOM layer", len(attestationData))
+
+	// Try to parse as in-toto attestation and extract the predicate
+	var attestation InTotoAttestation
+	if err := json.Unmarshal(attestationData, &attestation); err == nil && len(attestation.Predicate) > 0 {
+		logVerbose("Extracted SBOM predicate from in-toto attestation")
+		var prettyJSON bytes.Buffer
+		if err := json.Indent(&prettyJSON, attestation.Predicate, "", "  "); err == nil {
+			return prettyJSON.Bytes(), "application/json", nil
+		}
+		return attestation.Predicate, "application/json", nil
+	}
+
+	// Return raw data if not in-toto format
+	return attestationData, "application/json", nil
 }
 
 // VEXDocument represents a parsed OpenVEX document.
@@ -1125,22 +974,14 @@ func (c *Client) FetchVEXContent(repository string, digest string) (*VEXDocument
 	// First, try fetching as a manifest (the digest might point to an attestation manifest)
 	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(c.keychain))
 	if err == nil {
-		// Successfully fetched as manifest — iterate layers to find VEX
 		img, imgErr := desc.Image()
 		if imgErr == nil {
 			manifest, manErr := img.Manifest()
 			if manErr == nil {
 				logVerbose("Searching for VEX layer in %d layers", len(manifest.Layers))
-				for _, layer := range manifest.Layers {
-					predicateType := layer.Annotations["in-toto.io/predicate-type"]
-					if predicateType == "" {
-						predicateType = layer.Annotations["predicateType"]
-					}
-					predicateLower := strings.ToLower(predicateType)
-					if strings.Contains(predicateLower, "vex") || strings.Contains(predicateLower, "openvex") {
-						logVerbose("Found VEX layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), predicateType)
-						return c.fetchAndParseVEXBlob(ref.Context(), layer.Digest.String())
-					}
+				if layer := findLayerByPredicate(manifest.Layers, "vex", "openvex"); layer != nil {
+					logVerbose("Found VEX layer: %s (predicate: %s)", truncateDigest(layer.Digest.String()), getPredicateType(layer.Annotations))
+					return c.fetchAndParseVEXBlob(ref.Context(), layer.Digest.String())
 				}
 			}
 		}
@@ -1179,15 +1020,7 @@ func (c *Client) fetchAndParseVEXBlob(repo name.Repository, digest string) (*VEX
 	logVerbose("Read %d bytes from VEX blob", len(data))
 
 	// Try to parse as in-toto/DSSE attestation and extract the predicate
-	var attestation struct {
-		Type          string          `json:"_type"`
-		PredicateType string          `json:"predicateType"`
-		Predicate     json.RawMessage `json:"predicate"`
-		// DSSE envelope fields
-		PayloadType string `json:"payloadType"`
-		Payload     string `json:"payload"`
-	}
-
+	var attestation InTotoAttestation
 	var vexData []byte
 	if err := json.Unmarshal(data, &attestation); err == nil {
 		if len(attestation.Predicate) > 0 {
@@ -1272,24 +1105,13 @@ func buildReferrersFromAttestationLayers(manifest *v1.Manifest, attestationDiges
 	var referrers []Referrer
 
 	for _, layer := range manifest.Layers {
-		predicateType := ""
-		// Check both in-toto standard annotation and cosign's annotation key
-		if pt, ok := layer.Annotations["in-toto.io/predicate-type"]; ok {
-			predicateType = pt
-		} else if pt, ok := layer.Annotations["predicateType"]; ok {
-			predicateType = pt
-		}
+		predicateType := getPredicateType(layer.Annotations)
 		if predicateType != "" {
 			logVerbose("  Layer %s has predicate-type: %s", truncateDigest(layer.Digest.String()), predicateType)
 		}
 
-		predicateLower := strings.ToLower(predicateType)
-
 		// Check for SBOM predicate types
-		if strings.Contains(predicateLower, "spdx") ||
-			strings.Contains(predicateLower, "cyclonedx") ||
-			strings.Contains(predicateLower, "sbom") ||
-			strings.Contains(predicateLower, "syft") {
+		if containsAny(predicateType, "spdx", "cyclonedx", "sbom", "syft") {
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
@@ -1312,8 +1134,7 @@ func buildReferrersFromAttestationLayers(manifest *v1.Manifest, attestationDiges
 		}
 
 		// Check for VEX predicate types (must come before provenance/attestation)
-		if strings.Contains(predicateLower, "vex") ||
-			strings.Contains(predicateLower, "openvex") {
+		if containsAny(predicateType, "vex", "openvex") {
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
@@ -1332,8 +1153,7 @@ func buildReferrersFromAttestationLayers(manifest *v1.Manifest, attestationDiges
 		}
 
 		// Check for provenance/attestation predicate types
-		if strings.Contains(predicateLower, "provenance") ||
-			strings.Contains(predicateLower, "slsa") {
+		if containsAny(predicateType, "provenance", "slsa") {
 			annotations := make(map[string]string)
 			for k, v := range indexAnnotations {
 				annotations[k] = v
@@ -1456,61 +1276,74 @@ func (c *Client) extractSignatureInfo(ref name.Reference, digest string) (*Signa
 	return info, nil
 }
 
-func classifyArtifactType(artifactType string, annotations map[string]string) string {
-	artifactTypeLower := strings.ToLower(artifactType)
+// getPredicateType returns the predicate type from annotations, checking known keys
+// in priority order: in-toto.io/predicate-type, dev.sigstore.bundle.predicateType, predicateType.
+func getPredicateType(annotations map[string]string) string {
+	if pt := annotations["in-toto.io/predicate-type"]; pt != "" {
+		return pt
+	}
+	if pt := annotations["dev.sigstore.bundle.predicateType"]; pt != "" {
+		return pt
+	}
+	return annotations["predicateType"]
+}
 
-	if strings.Contains(artifactTypeLower, "signature") || strings.Contains(artifactTypeLower, "notary") || strings.Contains(artifactTypeLower, "cosign") {
+// containsAny returns true if the lowercased string s contains any of the given substrings.
+func containsAny(s string, substrs ...string) bool {
+	lower := strings.ToLower(s)
+	for _, sub := range substrs {
+		if strings.Contains(lower, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func classifyArtifactType(artifactType string, annotations map[string]string) string {
+	if containsAny(artifactType, "signature", "notary", "cosign") {
 		logVerbose("Classified artifact as 'signature' based on artifactType: %s", artifactType)
 		return "signature"
 	}
-	if strings.Contains(artifactTypeLower, "sbom") || strings.Contains(artifactTypeLower, "cyclonedx") || strings.Contains(artifactTypeLower, "spdx") {
+	if containsAny(artifactType, "sbom", "cyclonedx", "spdx") {
 		logVerbose("Classified artifact as 'sbom' based on artifactType: %s", artifactType)
 		return "sbom"
 	}
 	// VEX check must come before attestation to avoid classifying VEX as generic attestation
-	if strings.Contains(artifactTypeLower, "vex") || strings.Contains(artifactTypeLower, "openvex") {
+	if containsAny(artifactType, "vex", "openvex") {
 		logVerbose("Classified artifact as 'vex' based on artifactType: %s", artifactType)
 		return "vex"
 	}
-	if strings.Contains(artifactTypeLower, "vuln") || strings.Contains(artifactTypeLower, "scan") {
+	if containsAny(artifactType, "vuln", "scan") {
 		logVerbose("Classified artifact as 'vulnerability-scan' based on artifactType: %s", artifactType)
 		return "vulnerability-scan"
 	}
 
 	// Check annotations for predicate type before generic envelope type checks.
 	// In-toto/DSSE envelope types need annotation inspection to determine the specific type.
-	// Also check Sigstore bundle predicateType annotation.
-	predType := annotations["in-toto.io/predicate-type"]
-	if predType == "" {
-		predType = annotations["dev.sigstore.bundle.predicateType"]
-	}
-	if predType == "" {
-		predType = annotations["predicateType"]
-	}
+	predType := getPredicateType(annotations)
 	if predType != "" {
 		logVerbose("Checking predicate type annotation: %s", predType)
-		predTypeLower := strings.ToLower(predType)
-		if strings.Contains(predTypeLower, "vex") || strings.Contains(predTypeLower, "openvex") {
+		if containsAny(predType, "vex", "openvex") {
 			logVerbose("Classified artifact as 'vex' based on predicate-type annotation")
 			return "vex"
 		}
-		if strings.Contains(predTypeLower, "sbom") || strings.Contains(predTypeLower, "cyclonedx") || strings.Contains(predTypeLower, "spdx") {
+		if containsAny(predType, "sbom", "cyclonedx", "spdx") {
 			logVerbose("Classified artifact as 'sbom' based on predicate-type annotation")
 			return "sbom"
 		}
-		if strings.Contains(predTypeLower, "provenance") || strings.Contains(predTypeLower, "slsa") {
+		if containsAny(predType, "provenance", "slsa") {
 			logVerbose("Classified artifact as 'attestation' based on predicate-type annotation")
 			return "attestation"
 		}
-		if strings.Contains(predTypeLower, "vuln") {
+		if containsAny(predType, "vuln") {
 			logVerbose("Classified artifact as 'vulnerability-scan' based on predicate-type annotation")
 			return "vulnerability-scan"
 		}
 	}
 
 	// Sigstore bundle artifact type — classify based on content annotation
-	if strings.Contains(artifactTypeLower, "sigstore.bundle") {
-		if content, ok := annotations["dev.sigstore.bundle.content"]; ok && strings.Contains(strings.ToLower(content), "message-signature") {
+	if containsAny(artifactType, "sigstore.bundle") {
+		if content, ok := annotations["dev.sigstore.bundle.content"]; ok && containsAny(content, "message-signature") {
 			logVerbose("Classified Sigstore bundle as 'signature' based on content annotation")
 			return "signature"
 		}
@@ -1518,7 +1351,7 @@ func classifyArtifactType(artifactType string, annotations map[string]string) st
 		return "attestation"
 	}
 
-	if strings.Contains(artifactTypeLower, "attestation") || strings.Contains(artifactTypeLower, "in-toto") || strings.Contains(artifactTypeLower, "provenance") {
+	if containsAny(artifactType, "attestation", "in-toto", "provenance") {
 		logVerbose("Classified artifact as 'attestation' based on artifactType: %s", artifactType)
 		return "attestation"
 	}

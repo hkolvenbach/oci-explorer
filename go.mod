@@ -7,6 +7,7 @@ toolchain go1.24.13
 require (
 	github.com/google/go-containerregistry v0.20.7
 	github.com/gorilla/mux v1.8.1
+	github.com/yuin/goldmark v1.7.16
 	golang.org/x/sync v0.18.0
 )
 
