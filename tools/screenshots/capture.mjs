@@ -94,7 +94,56 @@ try {
   await page.screenshot({ path: resolve(OUT_DIR, "details.png") });
   console.log("Captured details.png");
 
-  // 3. Graph view
+  // 3. Matching tags — supported registry (Docker Hub alpine:latest)
+  //    Wait for matching tags to load so the count badge updates and
+  //    the "current" tag styling is visible.
+  await page.click("#btn-details");
+  await page.waitForTimeout(500);
+  await page.waitForFunction(() => {
+    const badge = document.getElementById("tags-count-badge");
+    return badge && !badge.textContent.includes("1 tags");
+  }, { timeout: 60000 });
+  await page.waitForTimeout(500);
+  const supportedContainer = await page.evaluateHandle(() => {
+    const btn = document.querySelector('[data-collapse="tags-content"]');
+    return btn ? btn.closest(".border") : null;
+  });
+  if (supportedContainer.asElement()) {
+    await supportedContainer.asElement().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    await supportedContainer.asElement().screenshot({
+      path: resolve(OUT_DIR, "matching-tags-supported.png"),
+    });
+    console.log("Captured matching-tags-supported.png");
+  }
+
+  // 4. Matching tags — unsupported registry (GHCR shows warning)
+  await page.fill("#image-input", "ghcr.io/hkolvenbach/oci-explorer:latest");
+  await page.click("#inspect-btn");
+  await page.waitForSelector("#image-container:not(.hidden)", { timeout: 30000 });
+  await page.waitForFunction(() => {
+    const tagsContent = document.getElementById("tags-content");
+    return tagsContent && tagsContent.innerHTML.includes("bg-yellow");
+  }, { timeout: 60000 });
+  await page.waitForTimeout(500);
+  const unsupportedContainer = await page.evaluateHandle(() => {
+    const btn = document.querySelector('[data-collapse="tags-content"]');
+    return btn ? btn.closest(".border") : null;
+  });
+  if (unsupportedContainer.asElement()) {
+    await unsupportedContainer.asElement().scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    await unsupportedContainer.asElement().screenshot({
+      path: resolve(OUT_DIR, "matching-tags-unsupported.png"),
+    });
+    console.log("Captured matching-tags-unsupported.png");
+  }
+
+  // 5. Graph view
+  await page.fill("#image-input", "alpine:latest");
+  await page.click("#inspect-btn");
+  await page.waitForSelector("#image-container:not(.hidden)", { timeout: 30000 });
+  await page.waitForTimeout(1000);
   await page.click("#btn-graph");
   await page.waitForTimeout(1500);
   await page.screenshot({ path: resolve(OUT_DIR, "graph.png") });
