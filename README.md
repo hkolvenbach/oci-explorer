@@ -18,7 +18,11 @@ A local Go application that visualizes OCI container image structures including 
   - Vulnerability Scans
 - **Cosign Tag Discovery** - Finds `.sig` and `.att` cosign tags alongside OCI Referrers API
 - **Tag Listing** - Browse all tags for a repository
-- **Graph View** - Visual diagram showing relationships between components
+- **Security Score** - At-a-glance 0-10 score with animated ring, grading supply chain artifact presence (signatures, SBOMs, attestations, VEX) with expandable detail panel
+- **Copyable Digests** - Click any SHA digest in the UI to copy it to the clipboard
+- **Graph View** - Interactive graph with pan/zoom showing relationships between components
+- **Mobile Responsive** - Adaptive layout that works on phones and tablets
+- **Version Display** - Backend binary version shown in the footer via `/api/health`
 - **Authentication** - Uses Docker credential helpers for private registries
 
 ## Quick Start
