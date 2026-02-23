@@ -107,12 +107,14 @@ func main() {
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/inspect", handleInspect).Methods("GET", "OPTIONS")
 	api.HandleFunc("/tags", handleListTags).Methods("GET", "OPTIONS")
+	api.HandleFunc("/matching-tags", handleMatchingTags).Methods("GET", "OPTIONS")
 	api.HandleFunc("/sbom", handleDownloadSBOM).Methods("GET", "OPTIONS")
 	api.HandleFunc("/vex", handleFetchVEX).Methods("GET", "OPTIONS")
 	api.HandleFunc("/health", handleHealth).Methods("GET")
 	api.HandleFunc("/openapi.yaml", docsHandler.ServeOpenAPISpec).Methods("GET")
 	logVerbose("  - GET /api/inspect")
 	logVerbose("  - GET /api/tags")
+	logVerbose("  - GET /api/matching-tags")
 	logVerbose("  - GET /api/sbom")
 	logVerbose("  - GET /api/vex")
 	logVerbose("  - GET /api/health")
@@ -295,5 +297,38 @@ func handleListTags(w http.ResponseWriter, r *http.Request) {
 	logVerbose("Found %d tags for %s", len(tags), repo)
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{Success: true, Data: tags})
+}
+
+// handleMatchingTags returns tags that share the same digest as the queried image.
+//
+// Test examples:
+//   Docker Hub (returns matching tags):
+//     curl 'http://localhost:8080/api/matching-tags?image=alpine:latest'
+//   GCR / Artifact Registry (single-request lookup):
+//     curl 'http://localhost:8080/api/matching-tags?image=gcr.io/google-containers/pause:3.2'
+//   GHCR (unsupported — returns note):
+//     curl 'http://localhost:8080/api/matching-tags?image=ghcr.io/hkolvenbach/oci-explorer:0.2.2'
+func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
+	imageRef := r.URL.Query().Get("image")
+	if imageRef == "" {
+		logVerbose("Matching tags request rejected: missing image parameter")
+		writeBadRequest(w, "image parameter is required")
+		return
+	}
+
+	log.Printf("Looking up matching tags for: %s", imageRef)
+	logVerbose("Request from: %s", r.RemoteAddr)
+
+	client := registry.NewClient()
+	result, err := client.GetMatchingTags(imageRef)
+	if err != nil {
+		log.Printf("Error looking up matching tags: %v", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	logVerbose("Found %d matching tags for %s", len(result.Tags), imageRef)
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, APIResponse{Success: true, Data: result})
 }
 

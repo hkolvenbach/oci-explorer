@@ -376,6 +376,105 @@ Content-Type: application/json
 
 ---
 
+### GET /api/matching-tags
+
+Find all tags in a repository that resolve to the same digest as the given image reference. This is a reverse lookup: given `alpine:latest`, discover that it is also tagged `3.23.3`, `3.23`, `3`.
+
+The lookup strategy depends on the registry:
+
+| Registry | Strategy | Cost |
+|---|---|---|
+| Docker Hub (`docker.io`, `index.docker.io`) | Paginate Hub API, match digests client-side | ~5-10 requests |
+| GCR / Artifact Registry (`gcr.io`, `*-docker.pkg.dev`) | Extended `tags/list` with manifest map | 1 request |
+| Other registries (GHCR, Quay, ECR, etc.) | Returns empty list + explanatory note | 0 requests |
+
+#### Request
+
+```http
+GET /api/matching-tags?image=alpine:latest HTTP/1.1
+Host: localhost:8080
+```
+
+#### Query Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `image` | Yes | Image reference (e.g., `alpine:latest`, `gcr.io/google-containers/pause:3.2`) |
+
+#### Response (Success — supported registry)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "data": {
+    "repository": "index.docker.io/library/alpine",
+    "digest": "sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659",
+    "tags": [
+      "latest",
+      "3.23.3",
+      "3.23",
+      "3"
+    ]
+  }
+}
+```
+
+#### Response (Unsupported registry)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "data": {
+    "repository": "ghcr.io/hkolvenbach/oci-explorer",
+    "digest": "sha256:bd36b7f02ffd...",
+    "tags": [],
+    "note": "Registry \"ghcr.io\" does not support efficient digest-to-tag lookup. Only Docker Hub and GCR/Artifact Registry are supported."
+  }
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `repository` | string | Full repository name including registry |
+| `digest` | string | Resolved image digest |
+| `tags` | array | Tags pointing to the same digest (empty if unsupported) |
+| `note` | string | Explanation when tags list is empty (unsupported registry) |
+
+#### Test Examples
+
+```bash
+# Docker Hub — returns matching tags
+curl "http://localhost:8080/api/matching-tags?image=alpine:latest"
+
+# GCR — single-request lookup
+curl "http://localhost:8080/api/matching-tags?image=gcr.io/google-containers/pause:3.2"
+
+# GHCR — returns note (unsupported registry)
+curl "http://localhost:8080/api/matching-tags?image=ghcr.io/hkolvenbach/oci-explorer:0.2.2"
+```
+
+#### Error Response
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "success": false,
+  "error": "image parameter is required"
+}
+```
+
+---
+
 ### GET /api/sbom
 
 Download SBOM content from an attestation manifest.
@@ -608,6 +707,8 @@ All API responses follow a consistent format:
 | `invalid image reference: ...` | Malformed image reference |
 | `invalid repository: ...` | Malformed repository name |
 | `failed to fetch image: ...` | Registry communication error |
+| `Docker Hub tag lookup failed: ...` | Error during Docker Hub matching-tags pagination |
+| `GCR tag lookup failed: ...` | Error during GCR matching-tags lookup |
 | `no SBOM layer found in attestation manifest` | Attestation doesn't contain SBOM |
 | `no VEX layer found in attestation manifest` | Attestation doesn't contain VEX |
 
@@ -644,6 +745,18 @@ curl "http://localhost:8080/api/inspect?image=alpine:latest"
 **List Tags:**
 ```bash
 curl "http://localhost:8080/api/tags?repository=library/nginx"
+```
+
+**Find Matching Tags:**
+```bash
+# Docker Hub
+curl "http://localhost:8080/api/matching-tags?image=alpine:latest"
+
+# GCR
+curl "http://localhost:8080/api/matching-tags?image=gcr.io/google-containers/pause:3.2"
+
+# Unsupported registry (returns note)
+curl "http://localhost:8080/api/matching-tags?image=ghcr.io/hkolvenbach/oci-explorer:0.2.2"
 ```
 
 **Download SBOM:**

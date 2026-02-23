@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -404,6 +406,195 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 
 	logVerbose("Image inspection complete")
 	return info, nil
+}
+
+// MatchingTagsResult holds tags that share the same digest as the queried image.
+type MatchingTagsResult struct {
+	Repository string   `json:"repository"`
+	Digest     string   `json:"digest"`
+	Tags       []string `json:"tags"`
+	Note       string   `json:"note,omitempty"`
+}
+
+func registryHost(ref name.Reference) string {
+	return ref.Context().Registry.Name()
+}
+
+func isDockerHub(host string) bool {
+	return host == "index.docker.io" || host == "registry-1.docker.io"
+}
+
+func isGCR(host string) bool {
+	return host == "gcr.io" || strings.HasSuffix(host, ".gcr.io") ||
+		strings.HasSuffix(host, "-docker.pkg.dev")
+}
+
+// GetMatchingTags returns all tags in the repository that point to the same
+// digest as the given image reference. It uses registry-specific APIs where
+// available and returns an explanatory note for unsupported registries.
+//
+// Example usage:
+//   Docker Hub:  GetMatchingTags("alpine:latest")          → ["latest","3.23.3","3.23","3"]
+//   GCR:         GetMatchingTags("gcr.io/google-containers/pause:3.2") → ["3.2","deprecated-public-image-..."]
+//   GHCR:        GetMatchingTags("ghcr.io/owner/repo:v1")  → [] + note (unsupported)
+func (c *Client) GetMatchingTags(imageRef string) (*MatchingTagsResult, error) {
+	logVerbose("GetMatchingTags: parsing reference %s", imageRef)
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return nil, fmt.Errorf("invalid image reference: %w", err)
+	}
+
+	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(c.keychain))
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch image: %w", err)
+	}
+
+	digest := desc.Digest.String()
+	host := registryHost(ref)
+	logVerbose("GetMatchingTags: resolved digest %s on host %s", truncateDigest(digest), host)
+
+	result := &MatchingTagsResult{
+		Repository: ref.Context().String(),
+		Digest:     digest,
+		Tags:       []string{},
+	}
+
+	switch {
+	case isDockerHub(host):
+		tags, err := c.getMatchingTagsDockerHub(ref, digest)
+		if err != nil {
+			return nil, fmt.Errorf("Docker Hub tag lookup failed: %w", err)
+		}
+		result.Tags = tags
+	case isGCR(host):
+		tags, err := c.getMatchingTagsGCR(ref, digest)
+		if err != nil {
+			return nil, fmt.Errorf("GCR tag lookup failed: %w", err)
+		}
+		result.Tags = tags
+	default:
+		result.Note = fmt.Sprintf(
+			"Registry %q does not support efficient digest-to-tag lookup. "+
+				"Only Docker Hub and GCR/Artifact Registry are supported.",
+			host,
+		)
+		logVerbose("GetMatchingTags: unsupported registry %s", host)
+	}
+
+	return result, nil
+}
+
+// Docker Hub tag list API response types.
+type dockerHubTagsResponse struct {
+	Next    string         `json:"next"`
+	Results []dockerHubTag `json:"results"`
+}
+
+type dockerHubTag struct {
+	Name   string               `json:"name"`
+	Digest string               `json:"digest"`
+	Images []dockerHubTagImage  `json:"images"`
+}
+
+type dockerHubTagImage struct {
+	Digest string `json:"digest"`
+}
+
+func (c *Client) getMatchingTagsDockerHub(ref name.Reference, targetDigest string) ([]string, error) {
+	// Resolve namespace/repo — go-containerregistry returns "library/alpine" for official images.
+	repoPath := ref.Context().RepositoryStr()
+	logVerbose("getMatchingTagsDockerHub: repo=%s, target=%s", repoPath, truncateDigest(targetDigest))
+
+	var tags []string
+	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/tags?page_size=100", repoPath)
+
+	for url != "" {
+		logVerbose("getMatchingTagsDockerHub: fetching %s", url)
+		resp, err := http.Get(url) //nolint:gosec // URL is constructed from trusted registry path
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %w", err)
+		}
+
+		var page dockerHubTagsResponse
+		decErr := json.NewDecoder(resp.Body).Decode(&page)
+		resp.Body.Close()
+		if decErr != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", decErr)
+		}
+
+		for _, t := range page.Results {
+			if t.Digest == targetDigest {
+				tags = append(tags, t.Name)
+				continue
+			}
+			for _, img := range t.Images {
+				if img.Digest == targetDigest {
+					tags = append(tags, t.Name)
+					break
+				}
+			}
+		}
+
+		url = page.Next
+	}
+
+	logVerbose("getMatchingTagsDockerHub: found %d matching tags", len(tags))
+	return tags, nil
+}
+
+// GCR extended tags/list response types.
+type gcrTagsResponse struct {
+	Tags     []string                    `json:"tags"`
+	Manifest map[string]gcrManifestEntry `json:"manifest"`
+}
+
+type gcrManifestEntry struct {
+	Tag []string `json:"tag"`
+}
+
+func (c *Client) getMatchingTagsGCR(ref name.Reference, targetDigest string) ([]string, error) {
+	repo := ref.Context()
+	logVerbose("getMatchingTagsGCR: repo=%s, target=%s", repo.String(), truncateDigest(targetDigest))
+
+	authr, err := c.keychain.Resolve(repo)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve auth: %w", err)
+	}
+
+	scopes := []string{repo.Scope(transport.PullScope)}
+	tr, err := transport.New(repo.Registry, authr, http.DefaultTransport, scopes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create transport: %w", err)
+	}
+
+	tagsURL := fmt.Sprintf("%s://%s/v2/%s/tags/list",
+		repo.Registry.Scheme(), repo.Registry.Name(), repo.RepositoryStr())
+	logVerbose("getMatchingTagsGCR: fetching %s", tagsURL)
+
+	req, err := http.NewRequest("GET", tagsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := (&http.Client{Transport: tr}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var gcrResp gcrTagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&gcrResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	entry, ok := gcrResp.Manifest[targetDigest]
+	if !ok {
+		logVerbose("getMatchingTagsGCR: digest not found in manifest map")
+		return []string{}, nil
+	}
+
+	logVerbose("getMatchingTagsGCR: found %d matching tags", len(entry.Tag))
+	return entry.Tag, nil
 }
 
 func (c *Client) populateFromIndex(info *ImageInfo, desc *remote.Descriptor) error {
