@@ -31,6 +31,8 @@ tags:
     description: Image inspection endpoints
   - name: Tags
     description: Repository tag endpoints
+  - name: Matching Tags
+    description: Digest-to-tag reverse lookup endpoints
   - name: SBOM
     description: SBOM download endpoints
   - name: VEX
@@ -341,6 +343,80 @@ paths:
                 success: false
                 error: no VEX layer found in attestation manifest
 
+  /matching-tags:
+    get:
+      summary: Find tags matching a digest
+      description: |
+        Returns all tags in the repository that resolve to the same digest as the
+        given image reference. This is a reverse lookup: given `alpine:latest`,
+        discover that it is also tagged `alpine:3.23.3`.
+
+        The lookup strategy depends on the registry:
+        - **Docker Hub**: Paginates the Hub REST API and matches digests client-side.
+        - **GCR / Artifact Registry**: Uses the extended `tags/list` response which
+          includes a `manifest` map keyed by digest.
+        - **Other registries**: Returns an empty tag list with an explanatory note,
+          because the OCI Distribution Spec does not support efficient digest-based
+          tag filtering.
+      operationId: getMatchingTags
+      tags:
+        - Matching Tags
+      parameters:
+        - name: image
+          in: query
+          required: true
+          description: |
+            Full image reference (with tag or digest):
+            - `alpine:latest`
+            - `gcr.io/google-containers/pause:3.9`
+            - `ghcr.io/owner/repo:v1.0.0`
+          schema:
+            type: string
+          examples:
+            dockerHub:
+              summary: Docker Hub image
+              value: alpine:latest
+            gcr:
+              summary: Google Container Registry
+              value: gcr.io/google-containers/pause:3.9
+            ghcr:
+              summary: GitHub Container Registry
+              value: ghcr.io/owner/repo:v1.0.0
+      responses:
+        '200':
+          description: Matching tags result (may be empty with a note for unsupported registries)
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/MatchingTagsResult'
+        '400':
+          description: Invalid request (missing or malformed image parameter)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: image parameter is required
+        '500':
+          description: Server error (registry errors, network issues)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: "Docker Hub tag lookup failed: request failed: ..."
+
 components:
   schemas:
     HealthResponse:
@@ -398,6 +474,37 @@ components:
           items:
             type: string
           example: ["3.18", "3.19", "latest"]
+
+    MatchingTagsResult:
+      type: object
+      description: |
+        Result of a digest-to-tag reverse lookup. For supported registries (Docker Hub,
+        GCR/Artifact Registry), `tags` contains all tags pointing to the same digest.
+        For unsupported registries, `tags` is empty and `note` explains the limitation.
+      required:
+        - repository
+        - digest
+        - tags
+      properties:
+        repository:
+          type: string
+          description: Full repository name including registry
+          example: index.docker.io/library/alpine
+        digest:
+          type: string
+          description: Resolved image digest
+          pattern: '^sha256:[a-f0-9]{64}$'
+          example: sha256:c5b1261d6d3e43071626931fc004f70149baeba2c8ec672bd4f27761f8e1ad6b
+        tags:
+          type: array
+          items:
+            type: string
+          description: Tags that resolve to the same digest (empty if unsupported)
+          example: ["latest", "3.23.3", "3.23"]
+        note:
+          type: string
+          description: Explains why tags may be empty (unsupported registry)
+          example: "Registry \"ghcr.io\" does not support efficient digest-to-tag lookup. Only Docker Hub and GCR/Artifact Registry are supported."
 
     ErrorResponse:
       type: object

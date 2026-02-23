@@ -389,6 +389,9 @@
                 renderImageData(result.data);
                 showContainer('image-container');
 
+                // Fetch matching tags in the background and update the tags section
+                fetchMatchingTags(imageRef);
+
                 // Update URL after successful inspection (unless navigating history)
                 if (!skipURLUpdate) {
                     updateURLWithImage(imageRef);
@@ -403,6 +406,73 @@
                 document.getElementById('inspect-icon').classList.remove('animate-spin');
                 document.getElementById('inspect-text').textContent = 'Inspect';
             }
+        }
+
+        async function fetchMatchingTags(imageRef) {
+            const mainTag = currentData?.tag || '';
+            try {
+                const response = await fetch(`/api/matching-tags?image=${encodeURIComponent(imageRef)}`);
+                const result = await response.json();
+
+                if (!result.success || !result.data) {
+                    const errMsg = result.error || 'Unknown error fetching matching tags';
+                    showTagsWarning(errMsg);
+                    return;
+                }
+
+                const { tags: matchingTags, note } = result.data;
+
+                // Merge matching tags into currentData.tags (deduplicated)
+                const allTags = new Set(currentData?.tags || []);
+                (matchingTags || []).forEach(t => allTags.add(t));
+                if (currentData) currentData.tags = [...allTags];
+
+                // Re-render just the tags section content
+                const tagsContent = document.getElementById('tags-content');
+                if (tagsContent) {
+                    tagsContent.innerHTML = renderTagsContent(currentData?.tags || [], mainTag, note);
+                }
+
+                // Update all tag count displays
+                const count = allTags.size;
+                const tagsBadge = document.getElementById('tags-count-badge');
+                if (tagsBadge) tagsBadge.textContent = `${count} tags`;
+                const summaryCount = document.getElementById('summary-tag-count');
+                if (summaryCount) summaryCount.textContent = count;
+
+                // Update the summary tag pills
+                updateSummaryTags(currentData?.tags || [], mainTag);
+            } catch (e) {
+                showTagsWarning(`Failed to fetch matching tags: ${e.message}`);
+            }
+        }
+
+        function showTagsWarning(message) {
+            const tagsContent = document.getElementById('tags-content');
+            if (!tagsContent) return;
+            // Append warning below existing tags
+            const existing = tagsContent.querySelector('.tags-warning');
+            if (existing) existing.remove();
+            tagsContent.insertAdjacentHTML('beforeend', `
+                <div class="tags-warning mt-3 flex items-start gap-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-xs text-yellow-300">
+                    <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                    </svg>
+                    <span>${message}</span>
+                </div>
+            `);
+        }
+
+        function updateSummaryTags(tags, mainTag) {
+            const summaryTags = document.getElementById('summary-tags');
+            if (!summaryTags) return;
+            const display = tags.slice(0, 5);
+            summaryTags.innerHTML = display.map(tag => {
+                if (tag === mainTag) {
+                    return `<span class="px-2 py-1 bg-blue-500/30 text-blue-200 rounded text-xs font-mono border border-blue-500/50">${esc(tag)}</span>`;
+                }
+                return `<span class="px-2 py-1 bg-slate-700/50 text-slate-400 rounded text-xs font-mono">${esc(tag)}</span>`;
+            }).join('') + (tags.length > 5 ? `<span class="text-xs text-slate-500">+${tags.length - 5} more</span>` : '');
         }
 
         function formatBytes(bytes) {
@@ -675,10 +745,13 @@
                                         </svg>
                                         <h2 class="text-lg font-semibold text-slate-100 break-all">${esc(data.repository)}</h2>
                                     </div>
-                                    <div class="flex items-center gap-2 mt-2 flex-wrap">
-                                        ${(data.tags || []).slice(0, 5).map(tag => `
-                                            <span class="px-2 py-1 bg-blue-500/20 text-blue-300 rounded text-xs font-mono">${esc(tag)}</span>
-                                        `).join('')}
+                                    <div id="summary-tags" class="flex items-center gap-2 mt-2 flex-wrap">
+                                        ${(data.tags || []).slice(0, 5).map(tag => {
+                                            if (tag === data.tag) {
+                                                return `<span class="px-2 py-1 bg-blue-500/30 text-blue-200 rounded text-xs font-mono border border-blue-500/50">${esc(tag)}</span>`;
+                                            }
+                                            return `<span class="px-2 py-1 bg-slate-700/50 text-slate-400 rounded text-xs font-mono">${esc(tag)}</span>`;
+                                        }).join('')}
                                         ${data.tags?.length > 5 ? `<span class="text-xs text-slate-500">+${data.tags.length - 5} more</span>` : ''}
                                     </div>
                                 </div>
@@ -721,7 +794,7 @@
                                     <div class="text-xs text-slate-500">Referrers</div>
                                 </div>
                                 <div class="text-center">
-                                    <div class="text-2xl font-bold text-blue-400">${tagCount}</div>
+                                    <div id="summary-tag-count" class="text-2xl font-bold text-blue-400">${tagCount}</div>
                                     <div class="text-xs text-slate-500">Tags</div>
                                 </div>
                             </div>
@@ -1328,7 +1401,31 @@
             `;
         }
 
+        function renderTagsContent(tags, mainTag, note) {
+            let html = `<div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto scrollbar-thin">`;
+            html += tags.map(tag => {
+                const imageRef = esc(currentData?.repository + ':' + tag);
+                if (tag === mainTag) {
+                    return `
+                        <div class="px-3 py-2 bg-blue-900/40 border border-blue-500/50 rounded-lg hover:border-blue-400 cursor-pointer transition-colors" data-image="${imageRef}" onclick="quickInspect(this.dataset.image)">
+                            <span class="font-mono text-sm text-blue-200">${esc(tag)}</span>
+                            <span class="ml-1 text-[10px] text-blue-400 uppercase tracking-wide">current</span>
+                        </div>`;
+                }
+                return `
+                    <div class="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg hover:border-blue-500 cursor-pointer transition-colors" data-image="${imageRef}" onclick="quickInspect(this.dataset.image)">
+                        <span class="font-mono text-sm text-slate-300">${esc(tag)}</span>
+                    </div>`;
+            }).join('');
+            html += `</div>`;
+            if (note) {
+                html += `<p class="mt-3 text-xs text-slate-500">${esc(note)}</p>`;
+            }
+            return html;
+        }
+
         function renderTagsSection(tags) {
+            const mainTag = currentData?.tag || '';
             return `
                 <div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
                     <button data-collapse="tags-content" class="w-full px-4 py-3 flex items-center justify-between bg-slate-800 hover:bg-slate-700 transition-colors">
@@ -1337,20 +1434,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path>
                             </svg>
                             <span class="font-semibold text-slate-100">Tags</span>
-                            <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">${tags.length} tags</span>
+                            <span id="tags-count-badge" class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">${tags.length} tags</span>
                         </div>
                         <svg class="w-5 h-5 text-slate-400 collapse-icon transition-transform" style="transform: rotate(90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
                         </svg>
                     </button>
                     <div id="tags-content" class="p-4">
-                        <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto scrollbar-thin">
-                            ${tags.map(tag => `
-                                <div class="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg hover:border-blue-500 cursor-pointer transition-colors" data-image="${esc(currentData?.repository + ':' + tag)}" onclick="quickInspect(this.dataset.image)">
-                                    <span class="font-mono text-sm text-slate-300">${esc(tag)}</span>
-                                </div>
-                            `).join('')}
-                        </div>
+                        ${renderTagsContent(tags, mainTag)}
                     </div>
                 </div>
             `;

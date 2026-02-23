@@ -17,6 +17,7 @@ A local Go application that visualizes OCI container image structures including 
   - VEX (OpenVEX) with status badges and vulnerability details
   - Vulnerability Scans
 - **Cosign Tag Discovery** - Finds `.sig` and `.att` cosign tags alongside OCI Referrers API
+- **Matching Tags** - Discover which tags point to the same digest (e.g., `alpine:latest` → also `3.23.3`, `3.23`, `3`)
 - **Tag Listing** - Browse all tags for a repository
 - **Security Score** - At-a-glance 0-10 score with animated ring, grading supply chain artifact presence (signatures, SBOMs, attestations, VEX) with expandable detail panel
 - **Copyable Digests** - Click any SHA digest in the UI to copy it to the clipboard
@@ -161,6 +162,32 @@ List all tags for a repository.
 **Query Parameters:**
 - `repository` (required) - Repository reference (e.g., `nginx`, `ghcr.io/org/repo`)
 
+### GET /api/matching-tags
+
+Find all tags in a repository that resolve to the same digest as the given image.
+
+**Query Parameters:**
+- `image` (required) - Image reference (e.g., `alpine:latest`, `gcr.io/google-containers/pause:3.2`)
+
+**Registry support:**
+| Registry | Strategy |
+|---|---|
+| Docker Hub | Paginate Hub API, match digests client-side |
+| GCR / Artifact Registry | Extended `tags/list` with manifest map (1 request) |
+| Other (GHCR, Quay, ECR) | Returns empty list + explanatory note |
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "repository": "index.docker.io/library/alpine",
+    "digest": "sha256:25109184c71b...",
+    "tags": ["latest", "3.23.3", "3.23", "3"]
+  }
+}
+```
+
 ### GET /api/sbom
 
 Download SBOM content from an attestation manifest.
@@ -199,6 +226,19 @@ curl "http://localhost:8080/api/inspect?image=ghcr.io/sigstore/cosign/cosign:lat
 
 # Google Container Registry
 curl "http://localhost:8080/api/inspect?image=gcr.io/distroless/static:latest"
+```
+
+### Find Matching Tags
+
+```bash
+# Docker Hub — discover that alpine:latest is also tagged 3.23.3, 3.23, 3
+curl "http://localhost:8080/api/matching-tags?image=alpine:latest"
+
+# GCR — single-request lookup via extended tags/list
+curl "http://localhost:8080/api/matching-tags?image=gcr.io/google-containers/pause:3.2"
+
+# GHCR — returns note (unsupported registry)
+curl "http://localhost:8080/api/matching-tags?image=ghcr.io/hkolvenbach/oci-explorer:0.2.2"
 ```
 
 ### Inspect Private Images
