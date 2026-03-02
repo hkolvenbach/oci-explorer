@@ -1,4 +1,4 @@
-.PHONY: all build build-all clean run test deps deploy-fly docker-build docker-push cosign-verify verify-attestation help
+.PHONY: all build build-web build-all clean run test deps deploy-fly docker-build docker-push cosign-verify verify-attestation help
 
 BINARY_NAME=oci-explorer
 GIT_DESC := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
@@ -17,11 +17,14 @@ deps:
 	go mod verify
 	go mod tidy
 
-build:
+build-web:
+	cd web && npm ci && npm run build
+
+build: build-web
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 go build $(GOFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(LDFLAGS) .
 
-build-all: deps
+build-all: deps build-web
 	@mkdir -p $(BUILD_DIR)
 	@for platform in $(PLATFORMS); do \
 		os=$${platform%/*}; \
@@ -40,6 +43,7 @@ test:
 clean:
 	go clean
 	rm -rf $(BUILD_DIR)
+	rm -rf web/dist web/node_modules
 
 release: build-all
 	@mkdir -p $(BUILD_DIR)/release
@@ -96,7 +100,8 @@ help:
 	@echo ""
 	@echo "Usage:"
 	@echo "  make deps                    Download, verify, and tidy dependencies"
-	@echo "  make build                   Build for current platform (deterministic)"
+	@echo "  make build-web               Build frontend (Svelte + Vite)"
+	@echo "  make build                   Build frontend + Go binary for current platform"
 	@echo "  make build-all               Build for all platforms (linux, darwin)"
 	@echo "  make run                     Build and run the application"
 	@echo "  make test                    Run tests"

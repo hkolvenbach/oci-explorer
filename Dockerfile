@@ -1,4 +1,15 @@
-# Build stage
+# Frontend build stage
+FROM node:22-alpine AS frontend
+
+WORKDIR /app/web
+
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci
+
+COPY web/ ./
+RUN npm run build
+
+# Go build stage
 FROM --platform=$BUILDPLATFORM golang:1.24.13-alpine AS builder
 
 ARG TARGETOS
@@ -16,6 +27,9 @@ RUN go mod download && go mod verify
 
 # Copy source code
 COPY . .
+
+# Copy frontend build output
+COPY --from=frontend /app/web/dist ./web/dist
 
 # Build the binary with deterministic flags
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
