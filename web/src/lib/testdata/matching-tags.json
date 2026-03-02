@@ -1,0 +1,11 @@
+{
+    "success": true,
+    "data": {
+        "repository": "index.docker.io/dmitriylewen/alpine",
+        "digest": "sha256:400c6d7cb6c383172a0a482b11058444d72d60fb333a8257af648e83e044fd0d",
+        "tags": [
+            "3.21.2",
+            "3.21.1"
+        ]
+    }
+}

@@ -10,7 +10,7 @@
 </script>
 
 <div class="flex flex-col items-center">
-  <div class="text-lg font-semibold text-slate-100 mb-2">Security Score</div>
+  <div class="text-lg font-semibold text-slate-100 mb-2">Supply Chain Score</div>
   <svg width="80" height="80" viewBox="0 0 100 100">
     <circle cx="50" cy="50" r="45" fill="none" stroke="#334155" stroke-width="8" />
     <circle

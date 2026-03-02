@@ -17,6 +17,7 @@ export const appState = $state({
   error: '',
   searchQuery: 'alpine:latest',
   version: '',
+  trivyAvailable: false,
 });
 
 export const graphState = $state({

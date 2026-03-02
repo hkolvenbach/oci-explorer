@@ -24,7 +24,7 @@
 
 <div class="bg-slate-800 border border-slate-700 rounded-lg p-5 mb-6 fade-in overflow-hidden">
   <div class="flex flex-col md:flex-row md:items-start gap-6 md:gap-8">
-    <!-- Security Score -->
+    <!-- Supply Chain Security Score -->
     <div class="flex-shrink-0 md:border-r border-b md:border-b-0 border-slate-700 pb-4 md:pb-0 md:pr-8">
       <SecurityScore score={scoreResult} bind:showDetails={showScoreDetails} />
     </div>
@@ -89,7 +89,7 @@
   <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4 mb-6 fade-in">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold text-slate-200">Security Score Breakdown</span>
+        <span class="text-sm font-semibold text-slate-200">Supply Chain Score Breakdown</span>
         <span class="px-2 py-0.5 text-xs rounded-full font-bold" style:background="{scoreResult.color}20" style:color={scoreResult.color}>{scoreResult.grade} ({scoreResult.score}/{scoreResult.maxScore})</span>
       </div>
       <button onclick={() => (showScoreDetails = false)} class="text-slate-400 hover:text-slate-200 text-xs">Close</button>

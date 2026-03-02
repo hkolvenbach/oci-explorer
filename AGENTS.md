@@ -122,6 +122,14 @@ Follow established standards and conventions. When in doubt, look up the relevan
 - Follow standard Go project layout conventions
 - Use `go vet` and fix all warnings before committing
 
+## Developer Guide
+
+Read `DEVELOPER.md` for the full developer workflow — devcontainer setup, VS Code debugger configuration, local/Docker development, and project architecture.
+
+### Dependency Upgrades
+
+Run `make upgrade` regularly when adding features. It updates Go modules, npm packages, and the pinned Trivy version in a single command. Always review the diff and run `make test` afterwards.
+
 ## Build Verification
 
 **CRITICAL**: After making any code changes, verify that the code compiles successfully.
@@ -201,8 +209,9 @@ Follow established standards and conventions. When in doubt, look up the relevan
 
 ### `web/`
 
-- Frontend HTML/JS (embedded into the Go binary)
-- Should work with both server and WASM backends
+- Svelte 5 + TypeScript + Tailwind CSS frontend (built with Vite)
+- Production output (`web/dist/*`) is embedded into the Go binary via `//go:embed`
+- See `DEVELOPER.md` for frontend dev server and debugging instructions
 
 ### `docs/`
 

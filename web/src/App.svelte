@@ -16,6 +16,7 @@
   import ReferrersSection from './components/ReferrersSection.svelte';
   import TagsSection from './components/TagsSection.svelte';
   import GraphView from './components/GraphView.svelte';
+  import ScanSection from './components/ScanSection.svelte';
 
   let matchingTags = $state<MatchingTagsResult | null>(null);
 
@@ -23,6 +24,7 @@
   $effect(() => {
     api.fetchHealth().then((h) => {
       appState.version = h.version;
+      appState.trivyAvailable = h.trivyAvailable ?? false;
     }).catch(() => {});
   });
 
@@ -104,6 +106,8 @@
           <GraphView data={appState.currentData} />
         {:else}
           <ImageSummary data={appState.currentData} />
+
+          <ScanSection data={appState.currentData} />
 
           {#if hasMultiplePlatforms}
             <PlatformFilter data={appState.currentData} />

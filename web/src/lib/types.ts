@@ -109,6 +109,48 @@ export interface HealthData {
   status: string;
   platform: string;
   version: string;
+  trivyAvailable?: boolean;
+}
+
+// Scan types
+export interface CvssSource {
+  source: string;
+  v3Score?: number;
+  v3Vector?: string;
+  v2Score?: number;
+}
+
+export interface VulnSummary {
+  vulnerabilityID: string;
+  pkgName: string;
+  installedVersion: string;
+  fixedVersion: string;
+  severity: string;
+  cvssScore?: number;
+  cvssSources?: CvssSource[];
+  title: string;
+  description: string;
+  primaryURL: string;
+  references: string[];
+  target: string;
+  targets?: string[];
+  vexStatus?: string;
+}
+
+export interface TargetSummary {
+  target: string;
+  class: string;
+  type: string;
+  count: number;
+}
+
+export interface ScanResult {
+  artifactName: string;
+  scanTime: string;
+  severityCounts: Record<string, number>;
+  totalCount: number;
+  bySeverity: Record<string, VulnSummary[]>;
+  targets: TargetSummary[];
 }
 
 // VEX types

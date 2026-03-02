@@ -1,4 +1,4 @@
-.PHONY: all build build-web build-all clean run test deps deploy-fly docker-build docker-push cosign-verify verify-attestation help
+.PHONY: all build build-web build-all clean run run-go test deps upgrade deploy-fly docker-build docker-push cosign-verify verify-attestation help
 
 BINARY_NAME=oci-explorer
 GIT_DESC := $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
@@ -10,6 +10,7 @@ PLATFORMS=linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 DOCKER_IMAGE=ghcr.io/hkolvenbach/oci-explorer
 DOCKER_PLATFORMS=linux/amd64,linux/arm64
 PORT ?= 8080
+TRIVY_VERSION ?= 0.69.2
 
 all: deps build
 
@@ -36,8 +37,11 @@ build-all: deps build-web
 	@echo "Build complete! Binaries are in $(BUILD_DIR)/"
 
 run:
-	docker build -t $(BINARY_NAME):dev --build-arg VERSION=$(VERSION) .
+	docker build -t $(BINARY_NAME):dev --build-arg VERSION=$(VERSION) --build-arg TRIVY_VERSION=$(TRIVY_VERSION) .
 	docker run --rm -p $(PORT):8080 -e PORT=8080 $(BINARY_NAME):dev
+
+run-go: build
+	PORT=$(PORT) $(BUILD_DIR)/$(BINARY_NAME)
 
 test:
 	go test -v ./...
@@ -62,14 +66,14 @@ docker-build:
 	docker buildx build --platform $(DOCKER_PLATFORMS) \
 		--provenance=mode=max --sbom=true \
 		-t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest \
-		--build-arg VERSION=$(VERSION) \
+		--build-arg VERSION=$(VERSION) --build-arg TRIVY_VERSION=$(TRIVY_VERSION) \
 		--output type=oci,dest=$(BUILD_DIR)/$(BINARY_NAME)-$(VERSION).tar .
 
 docker-push:
 	docker buildx build --platform $(DOCKER_PLATFORMS) \
 		--provenance=mode=max --sbom=true \
 		-t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest \
-		--build-arg VERSION=$(VERSION) --push .
+		--build-arg VERSION=$(VERSION) --build-arg TRIVY_VERSION=$(TRIVY_VERSION) --push .
 
 cosign-verify:
 	@echo "Verifying image signature..."
@@ -93,6 +97,28 @@ verify-attestation:
 		--certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
 		$(DOCKER_IMAGE):$(VERSION)
 
+upgrade:
+	@echo "==> Upgrading Go dependencies..."
+	go get -u ./...
+	go mod tidy
+	@echo ""
+	@echo "==> Upgrading frontend dependencies..."
+	cd web && npm update && npm audit fix --force 2>/dev/null || true && cd ..
+	@echo ""
+	@echo "==> Checking latest Trivy release..."
+	@LATEST=$$(curl -sS https://api.github.com/repos/aquasecurity/trivy/releases/latest | grep '"tag_name"' | sed 's/.*"v\([^"]*\)".*/\1/'); \
+	CURRENT=$(TRIVY_VERSION); \
+	if [ "$$LATEST" != "$$CURRENT" ]; then \
+		echo "  Trivy: $$CURRENT -> $$LATEST"; \
+		sed -i.bak "s/TRIVY_VERSION ?= $$CURRENT/TRIVY_VERSION ?= $$LATEST/" Makefile && rm -f Makefile.bak; \
+		sed -i.bak "s/TRIVY_VERSION=$$CURRENT/TRIVY_VERSION=$$LATEST/" .devcontainer/post-create.sh && rm -f .devcontainer/post-create.sh.bak; \
+		echo "  Updated Makefile and .devcontainer/post-create.sh"; \
+	else \
+		echo "  Trivy is already at latest ($$CURRENT)"; \
+	fi
+	@echo ""
+	@echo "==> Upgrade complete. Review changes with 'git diff'."
+
 deploy-fly:
 	@which fly > /dev/null || (echo "Error: flyctl not found. Install from https://fly.io/docs/hands-on/install-flyctl/" && exit 1)
 	fly deploy
@@ -106,7 +132,9 @@ help:
 	@echo "  make build                   Build frontend + Go binary for current platform"
 	@echo "  make build-all               Build for all platforms (linux, darwin)"
 	@echo "  make run                     Build Docker image and run locally (PORT=8080)"
+	@echo "  make run-go                  Build and run Go binary directly (PORT=8080)"
 	@echo "  make test                    Run tests"
+	@echo "  make upgrade                 Update Go, npm, and Trivy dependencies"
 	@echo "  make clean                   Clean build artifacts"
 	@echo "  make release                 Create release archives with checksums"
 	@echo "  make docker-build            Build multi-arch Docker image to OCI tarball"

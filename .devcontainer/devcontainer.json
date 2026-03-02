@@ -1,0 +1,33 @@
+{
+  "name": "OCI Image Explorer",
+  "image": "mcr.microsoft.com/devcontainers/go:1.25-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [8080, 5173, 2345],
+  "portsAttributes": {
+    "8080": { "label": "OCI Explorer", "onAutoForward": "notify" },
+    "5173": { "label": "Vite Dev Server", "onAutoForward": "silent" },
+    "2345": { "label": "Delve Debugger", "onAutoForward": "silent" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "svelte.svelte-vscode",
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "go.delveConfig": {
+          "debugAdapter": "dlv-dap"
+        },
+        "svelte.enable-ts-plugin": true
+      }
+    }
+  }
+}
