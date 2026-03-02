@@ -37,6 +37,8 @@ tags:
     description: SBOM download endpoints
   - name: VEX
     description: VEX document endpoints
+  - name: Scan
+    description: Vulnerability scanning endpoints (requires Trivy)
 
 paths:
   /health:
@@ -416,6 +418,84 @@ paths:
               example:
                 success: false
                 error: "Docker Hub tag lookup failed: request failed: ..."
+
+  /scan:
+    get:
+      summary: Scan image for vulnerabilities
+      description: |
+        Runs a Trivy vulnerability scan against the specified container image
+        and returns the results grouped by severity.
+
+        **Requirements:**
+        - Trivy must be installed locally and available in PATH
+        - The scan runs as a subprocess (`trivy image --format json --quiet <image>`)
+        - Timeout: 5 minutes
+
+        Results include CVE IDs, affected packages, installed/fixed versions,
+        severity levels, descriptions, and links to vulnerability databases.
+      operationId: scanImage
+      tags:
+        - Scan
+      parameters:
+        - name: image
+          in: query
+          required: true
+          description: |
+            Image reference to scan:
+            - `nginx:latest`
+            - `alpine:3.19`
+            - `ghcr.io/owner/repo:tag`
+          schema:
+            type: string
+          examples:
+            dockerHub:
+              summary: Docker Hub image
+              value: nginx:latest
+            minimal:
+              summary: Minimal image
+              value: alpine:latest
+      responses:
+        '200':
+          description: Scan completed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - success
+                  - data
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ScanResult'
+        '400':
+          description: Invalid request (missing image parameter)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: image parameter is required
+        '500':
+          description: Server error (Trivy not installed, scan failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                notInstalled:
+                  summary: Trivy not installed
+                  value:
+                    success: false
+                    error: "trivy is not installed or not in PATH: exec: \"trivy\": executable file not found in $PATH"
+                scanFailed:
+                  summary: Scan failed
+                  value:
+                    success: false
+                    error: "trivy scan failed: unable to initialize a scanner: unable to initialize a docker scanner"
 
 components:
   schemas:
@@ -1038,3 +1118,127 @@ components:
         cpe23:
           type: string
           description: Common Platform Enumeration v2.3
+
+    ScanResult:
+      type: object
+      description: Processed vulnerability scan results from Trivy
+      required:
+        - artifactName
+        - scanTime
+        - severityCounts
+        - totalCount
+        - bySeverity
+        - targets
+      properties:
+        artifactName:
+          type: string
+          description: Scanned image reference
+          example: nginx:latest
+        scanTime:
+          type: string
+          format: date-time
+          description: When the scan was performed (UTC)
+          example: "2024-03-01T12:00:00Z"
+        severityCounts:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Vulnerability count per severity level
+          example:
+            CRITICAL: 2
+            HIGH: 5
+            MEDIUM: 12
+            LOW: 3
+        totalCount:
+          type: integer
+          description: Total number of vulnerabilities found
+          example: 22
+        bySeverity:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              $ref: '#/components/schemas/VulnSummary'
+          description: Vulnerabilities grouped by severity (CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN)
+        targets:
+          type: array
+          items:
+            $ref: '#/components/schemas/TargetSummary'
+          description: Per-target scan metadata
+
+    VulnSummary:
+      type: object
+      description: Flattened vulnerability entry for display
+      required:
+        - vulnerabilityID
+        - pkgName
+        - severity
+        - target
+      properties:
+        vulnerabilityID:
+          type: string
+          description: CVE or vulnerability identifier
+          example: CVE-2024-0001
+        pkgName:
+          type: string
+          description: Affected package name
+          example: openssl
+        installedVersion:
+          type: string
+          description: Currently installed version
+          example: "3.0.13-1~deb12u1"
+        fixedVersion:
+          type: string
+          description: Version that fixes the vulnerability (empty if no fix available)
+          example: "3.0.13-1~deb12u2"
+        severity:
+          type: string
+          enum: [CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN]
+          description: Vulnerability severity level
+          example: CRITICAL
+        title:
+          type: string
+          description: Short vulnerability title
+          example: "OpenSSL: Buffer overflow in X.509 parsing"
+        description:
+          type: string
+          description: Full vulnerability description
+        primaryURL:
+          type: string
+          format: uri
+          description: Primary reference URL (typically Aqua Security AVD)
+          example: "https://avd.aquasec.com/nvd/cve-2024-0001"
+        references:
+          type: array
+          items:
+            type: string
+            format: uri
+          description: Additional reference URLs
+        target:
+          type: string
+          description: Scan target this vulnerability belongs to
+          example: "nginx:latest (debian 12.5)"
+
+    TargetSummary:
+      type: object
+      description: Per-target scan metadata
+      required:
+        - target
+        - count
+      properties:
+        target:
+          type: string
+          description: Target name (OS package set or language-specific file)
+          example: "nginx:latest (debian 12.5)"
+        class:
+          type: string
+          description: Target class
+          example: os-pkgs
+        type:
+          type: string
+          description: Target type
+          example: debian
+        count:
+          type: integer
+          description: Number of vulnerabilities in this target
+          example: 15

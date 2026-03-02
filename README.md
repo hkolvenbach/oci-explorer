@@ -17,6 +17,7 @@ A local Go application that visualizes OCI container image structures including 
   - VEX (OpenVEX) with status badges and vulnerability details
   - Vulnerability Scans
 - **Cosign Tag Discovery** - Finds `.sig` and `.att` cosign tags alongside OCI Referrers API
+- **Vulnerability Scanning (Trivy)** - On-demand CVE scanning with severity-grouped results, expandable details, fix versions, and links to vulnerability databases
 - **Matching Tags** - Discover which tags point to the same digest (e.g., `alpine:latest` → also `3.23.3`, `3.23`, `3`)
 - **Tag Listing** - Browse all tags for a repository
 - **Security Score** - At-a-glance 0-10 score with animated ring, grading supply chain artifact presence (signatures, SBOMs, attestations, VEX) with expandable detail panel
@@ -32,6 +33,7 @@ A local Go application that visualizes OCI container image structures including 
 
 - Go 1.24 or later
 - Make (optional, for build automation)
+- [Trivy](https://trivy.dev) v0.69+ (optional, for vulnerability scanning)
 
 ### Build & Run
 
@@ -208,6 +210,15 @@ Fetch and parse a VEX (Vulnerability Exploitability eXchange) document from an a
 
 **Response:** Parsed OpenVEX document with statements, status, justifications, and product identifiers.
 
+### GET /api/scan
+
+Scan a container image for vulnerabilities using Trivy (must be installed locally).
+
+**Query Parameters:**
+- `image` (required) - Image reference (e.g., `nginx:latest`)
+
+**Response:** Vulnerabilities grouped by severity with CVE details, affected packages, and fix versions.
+
 ### GET /api/health
 
 Health check endpoint.
@@ -351,6 +362,9 @@ oci-explorer/
 │   ├── client.go        # OCI registry client using go-containerregistry
 │   ├── client_test.go   # Registry client tests
 │   └── testdata/        # Test fixtures (Alpine, Kairos, VEX sample data)
+├── scanner/
+│   ├── scanner.go       # Trivy vulnerability scanner (subprocess-based)
+│   └── scanner_test.go  # Scanner unit tests
 ├── tools/
 │   ├── download-alpine/ # Alpine test data downloader
 │   └── sbom-extractor/  # Reference SBOM extraction tool

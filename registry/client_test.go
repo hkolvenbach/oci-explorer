@@ -1502,3 +1502,78 @@ func referrerTypeCounts(refs []Referrer) map[string]int {
 	}
 	return counts
 }
+
+// TestHomePageImageFeatures inspects every example image shown on the home page
+// and reports which supply chain features (SBOM, VEX, Attestation, Signature)
+// each one supports. Use this to keep the front-page badges in sync with reality.
+func TestHomePageImageFeatures(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode (requires network)")
+	}
+
+	// These must match the quickInspect() buttons in web/index.html
+	images := []string{
+		"alpine:latest",
+		"nginx:latest",
+		"python:3.12-slim",
+		"golang:1.21",
+		"ghcr.io/hkolvenbach/oci-explorer:latest",
+		"dmitriylewen/alpine:3.21.2",
+	}
+
+	type featureResult struct {
+		Image       string
+		SBOM        bool
+		VEX         bool
+		Attestation bool
+		Signature   bool
+	}
+
+	var results []featureResult
+
+	for _, img := range images {
+		t.Run(img, func(t *testing.T) {
+			client := NewClient()
+			info, err := client.InspectImage(img)
+			if err != nil {
+				t.Fatalf("InspectImage(%s) failed: %v", img, err)
+			}
+
+			fr := featureResult{Image: img}
+			for _, ref := range info.Referrers {
+				switch ref.Type {
+				case "sbom":
+					fr.SBOM = true
+				case "vex":
+					fr.VEX = true
+				case "attestation":
+					fr.Attestation = true
+				case "signature":
+					fr.Signature = true
+				}
+			}
+
+			results = append(results, fr)
+
+			counts := referrerTypeCounts(info.Referrers)
+			t.Logf("Image: %s", img)
+			t.Logf("  Referrers: %d total %v", len(info.Referrers), counts)
+			t.Logf("  SBOM=%v  VEX=%v  ATT=%v  SIG=%v", fr.SBOM, fr.VEX, fr.Attestation, fr.Signature)
+		})
+	}
+
+	// Print a summary table suitable for updating the front page
+	t.Log("")
+	t.Log("=== Home Page Badge Summary ===")
+	t.Logf("  %-45s  SBOM  VEX   ATT   SIG", "Image")
+	t.Logf("  %s  ----  ----  ----  ----", strings.Repeat("-", 45))
+	for _, fr := range results {
+		badge := func(b bool) string {
+			if b {
+				return " ✓  "
+			}
+			return " -  "
+		}
+		t.Logf("  %-45s  %s  %s  %s  %s", fr.Image, badge(fr.SBOM), badge(fr.VEX), badge(fr.Attestation), badge(fr.Signature))
+	}
+}

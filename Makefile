@@ -9,6 +9,7 @@ LDFLAGS=-ldflags "-w -s -X main.Version=$(VERSION)"
 PLATFORMS=linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 DOCKER_IMAGE=ghcr.io/hkolvenbach/oci-explorer
 DOCKER_PLATFORMS=linux/amd64,linux/arm64
+PORT ?= 8080
 
 all: deps build
 
@@ -34,8 +35,9 @@ build-all: deps build-web
 	done
 	@echo "Build complete! Binaries are in $(BUILD_DIR)/"
 
-run: build
-	./$(BUILD_DIR)/$(BINARY_NAME)
+run:
+	docker build -t $(BINARY_NAME):dev --build-arg VERSION=$(VERSION) .
+	docker run --rm -p $(PORT):8080 -e PORT=8080 $(BINARY_NAME):dev
 
 test:
 	go test -v ./...
@@ -103,7 +105,7 @@ help:
 	@echo "  make build-web               Build frontend (Svelte + Vite)"
 	@echo "  make build                   Build frontend + Go binary for current platform"
 	@echo "  make build-all               Build for all platforms (linux, darwin)"
-	@echo "  make run                     Build and run the application"
+	@echo "  make run                     Build Docker image and run locally (PORT=8080)"
 	@echo "  make test                    Run tests"
 	@echo "  make clean                   Clean build artifacts"
 	@echo "  make release                 Create release archives with checksums"

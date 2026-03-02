@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -17,6 +18,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/hkolvenbach/oci-explorer/docshandler"
 	"github.com/hkolvenbach/oci-explorer/registry"
+	"github.com/hkolvenbach/oci-explorer/scanner"
 )
 
 //go:embed web/dist/*
@@ -93,8 +95,9 @@ func main() {
 		log.Printf("[VERBOSE] Platform: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
-	// Set verbose mode in registry client
+	// Set verbose mode in registry client and scanner
 	registry.SetVerbose(verbose)
+	scanner.SetVerbose(verbose)
 
 	// Create docs handler (embed.FS satisfies fs.FS)
 	docsHandler := docshandler.New(docsFS, verbose)
@@ -110,6 +113,7 @@ func main() {
 	api.HandleFunc("/matching-tags", handleMatchingTags).Methods("GET", "OPTIONS")
 	api.HandleFunc("/sbom", handleDownloadSBOM).Methods("GET", "OPTIONS")
 	api.HandleFunc("/vex", handleFetchVEX).Methods("GET", "OPTIONS")
+	api.HandleFunc("/scan", handleScanImage).Methods("GET", "OPTIONS")
 	api.HandleFunc("/health", handleHealth).Methods("GET")
 	api.HandleFunc("/openapi.yaml", docsHandler.ServeOpenAPISpec).Methods("GET")
 	logVerbose("  - GET /api/inspect")
@@ -117,6 +121,7 @@ func main() {
 	logVerbose("  - GET /api/matching-tags")
 	logVerbose("  - GET /api/sbom")
 	logVerbose("  - GET /api/vex")
+	logVerbose("  - GET /api/scan")
 	logVerbose("  - GET /api/health")
 	logVerbose("  - GET /api/openapi.yaml")
 
@@ -183,13 +188,17 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	logVerbose("Health check requested from %s", r.RemoteAddr)
+
+	_, trivyErr := exec.LookPath("trivy")
+
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{
 		Success: true,
-		Data: map[string]string{
-			"status":   "healthy",
-			"platform": fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
-			"version":  Version,
+		Data: map[string]interface{}{
+			"status":         "healthy",
+			"platform":       fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+			"version":        Version,
+			"trivyAvailable": trivyErr == nil,
 		},
 	})
 }
@@ -333,6 +342,29 @@ func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logVerbose("Found %d matching tags for %s", len(result.Tags), imageRef)
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, APIResponse{Success: true, Data: result})
+}
+
+func handleScanImage(w http.ResponseWriter, r *http.Request) {
+	imageRef := r.URL.Query().Get("image")
+	if imageRef == "" {
+		logVerbose("Scan request rejected: missing image parameter")
+		writeBadRequest(w, "image parameter is required")
+		return
+	}
+
+	log.Printf("Scanning image for vulnerabilities: %s", imageRef)
+	logVerbose("Request from: %s", r.RemoteAddr)
+
+	result, err := scanner.ScanImage(r.Context(), imageRef)
+	if err != nil {
+		log.Printf("Error scanning image: %v", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	logVerbose("Scan complete for %s: %d vulnerabilities found", imageRef, result.TotalCount)
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{Success: true, Data: result})
 }
