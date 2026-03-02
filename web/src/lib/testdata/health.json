@@ -1,0 +1,9 @@
+{
+    "success": true,
+    "data": {
+        "platform": "darwin/arm64",
+        "status": "healthy",
+        "trivyAvailable": true,
+        "version": "dev"
+    }
+}

@@ -1,0 +1,25 @@
+{
+    "success": true,
+    "data": {
+        "@context": "https://openvex.dev/ns/v0.2.0",
+        "@id": "https://openvex.dev/docs/public/vex-2e67563e128250cbcb3e98930df948dd053e43271d70dc50cfa22d57e03fe96f",
+        "author": "Aqua Security",
+        "timestamp": "2024-07-30T19:07:16.853479631-06:00",
+        "version": 1,
+        "statements": [
+            {
+                "vulnerability": {
+                    "name": "CVE-2025-26519"
+                },
+                "products": [
+                    {
+                        "@id": "pkg:oci/alpine"
+                    }
+                ],
+                "status": "not_affected",
+                "justification": "vulnerable_code_cannot_be_controlled_by_adversary",
+                "impact_statement": "awk is not used"
+            }
+        ]
+    }
+}

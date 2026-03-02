@@ -41,17 +41,25 @@ type TargetResult struct {
 	Vulnerabilities []Vulnerability `json:"Vulnerabilities"`
 }
 
+// CVSSScores holds CVSS v2/v3 scores from a single source.
+type CVSSScores struct {
+	V3Score  float64 `json:"V3Score,omitempty"`
+	V2Score  float64 `json:"V2Score,omitempty"`
+	V3Vector string  `json:"V3Vector,omitempty"`
+}
+
 // Vulnerability is a raw CVE entry from Trivy.
 type Vulnerability struct {
-	VulnerabilityID  string   `json:"VulnerabilityID"`
-	PkgName          string   `json:"PkgName"`
-	InstalledVersion string   `json:"InstalledVersion"`
-	FixedVersion     string   `json:"FixedVersion"`
-	Severity         string   `json:"Severity"`
-	Title            string   `json:"Title"`
-	Description      string   `json:"Description"`
-	PrimaryURL       string   `json:"PrimaryURL"`
-	References       []string `json:"References"`
+	VulnerabilityID  string                 `json:"VulnerabilityID"`
+	PkgName          string                 `json:"PkgName"`
+	InstalledVersion string                 `json:"InstalledVersion"`
+	FixedVersion     string                 `json:"FixedVersion"`
+	Severity         string                 `json:"Severity"`
+	Title            string                 `json:"Title"`
+	Description      string                 `json:"Description"`
+	PrimaryURL       string                 `json:"PrimaryURL"`
+	References       []string               `json:"References"`
+	CVSS             map[string]CVSSScores  `json:"CVSS"`
 }
 
 // ScanResult is the processed result sent to the frontend.
@@ -65,17 +73,31 @@ type ScanResult struct {
 }
 
 // VulnSummary is a flattened CVE for frontend display.
+// When the same CVE+package appears across multiple targets (e.g., the same
+// Go stdlib vuln in 19 binaries), they are deduplicated into a single entry
+// with multiple targets.
+// CvssSource is a single CVSS score from a specific provider (NVD, Red Hat, etc.).
+type CvssSource struct {
+	Source   string  `json:"source"`
+	V3Score  float64 `json:"v3Score,omitempty"`
+	V3Vector string  `json:"v3Vector,omitempty"`
+	V2Score  float64 `json:"v2Score,omitempty"`
+}
+
 type VulnSummary struct {
-	VulnerabilityID  string   `json:"vulnerabilityID"`
-	PkgName          string   `json:"pkgName"`
-	InstalledVersion string   `json:"installedVersion"`
-	FixedVersion     string   `json:"fixedVersion"`
-	Severity         string   `json:"severity"`
-	Title            string   `json:"title"`
-	Description      string   `json:"description"`
-	PrimaryURL       string   `json:"primaryURL"`
-	References       []string `json:"references"`
-	Target           string   `json:"target"`
+	VulnerabilityID  string       `json:"vulnerabilityID"`
+	PkgName          string       `json:"pkgName"`
+	InstalledVersion string       `json:"installedVersion"`
+	FixedVersion     string       `json:"fixedVersion"`
+	Severity         string       `json:"severity"`
+	CvssScore        float64      `json:"cvssScore,omitempty"`
+	CvssSources      []CvssSource `json:"cvssSources,omitempty"`
+	Title            string       `json:"title"`
+	Description      string       `json:"description"`
+	PrimaryURL       string       `json:"primaryURL"`
+	References       []string     `json:"references"`
+	Target           string       `json:"target"`
+	Targets          []string     `json:"targets,omitempty"`
 }
 
 // TargetSummary provides per-target metadata.
@@ -124,7 +146,63 @@ func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 	return result, nil
 }
 
+// buildCvssSources converts Trivy's CVSS map into a sorted slice for the frontend.
+func buildCvssSources(cvss map[string]CVSSScores) []CvssSource {
+	if len(cvss) == 0 {
+		return nil
+	}
+	sources := make([]CvssSource, 0, len(cvss))
+	for name, s := range cvss {
+		if s.V3Score > 0 || s.V2Score > 0 {
+			sources = append(sources, CvssSource{
+				Source:   name,
+				V3Score:  s.V3Score,
+				V3Vector: s.V3Vector,
+				V2Score:  s.V2Score,
+			})
+		}
+	}
+	// Stable sort: NVD first, then alphabetical
+	sort.Slice(sources, func(i, j int) bool {
+		if sources[i].Source == "nvd" {
+			return true
+		}
+		if sources[j].Source == "nvd" {
+			return false
+		}
+		return sources[i].Source < sources[j].Source
+	})
+	return sources
+}
+
+// bestCVSSScore extracts the most relevant CVSS score from Trivy's multi-source
+// CVSS map. Prefers NVD V3, then any V3, then any V2. Returns 0 if unavailable.
+func bestCVSSScore(cvss map[string]CVSSScores) float64 {
+	if len(cvss) == 0 {
+		return 0
+	}
+	// Prefer NVD V3
+	if nvd, ok := cvss["nvd"]; ok && nvd.V3Score > 0 {
+		return nvd.V3Score
+	}
+	// Any source V3
+	for _, s := range cvss {
+		if s.V3Score > 0 {
+			return s.V3Score
+		}
+	}
+	// Fallback to V2
+	for _, s := range cvss {
+		if s.V2Score > 0 {
+			return s.V2Score
+		}
+	}
+	return 0
+}
+
 // processReport transforms raw Trivy output into a frontend-friendly structure.
+// Vulnerabilities with the same CVE ID and package name are deduplicated,
+// with their targets aggregated.
 func processReport(report TrivyReport) *ScanResult {
 	result := &ScanResult{
 		ArtifactName:   report.ArtifactName,
@@ -133,6 +211,10 @@ func processReport(report TrivyReport) *ScanResult {
 		BySeverity:     make(map[string][]VulnSummary),
 		Targets:        []TargetSummary{},
 	}
+
+	// Deduplicate by CVE ID + package name
+	type dedupKey struct{ cve, pkg string }
+	seen := make(map[dedupKey]*VulnSummary)
 
 	for _, tr := range report.Results {
 		target := TargetSummary{
@@ -149,22 +231,33 @@ func processReport(report TrivyReport) *ScanResult {
 				severity = "UNKNOWN"
 			}
 
+			key := dedupKey{cve: v.VulnerabilityID, pkg: v.PkgName}
+			if existing, ok := seen[key]; ok {
+				// Same CVE+package in another target — just add the target
+				existing.Targets = append(existing.Targets, tr.Target)
+				continue
+			}
+
 			summary := VulnSummary{
 				VulnerabilityID:  v.VulnerabilityID,
 				PkgName:          v.PkgName,
 				InstalledVersion: v.InstalledVersion,
 				FixedVersion:     v.FixedVersion,
 				Severity:         severity,
+				CvssScore:        bestCVSSScore(v.CVSS),
+				CvssSources:      buildCvssSources(v.CVSS),
 				Title:            v.Title,
 				Description:      v.Description,
 				PrimaryURL:       v.PrimaryURL,
 				References:       v.References,
 				Target:           tr.Target,
+				Targets:          []string{tr.Target},
 			}
 
 			result.SeverityCounts[severity]++
 			result.TotalCount++
 			result.BySeverity[severity] = append(result.BySeverity[severity], summary)
+			seen[key] = &result.BySeverity[severity][len(result.BySeverity[severity])-1]
 		}
 	}
 

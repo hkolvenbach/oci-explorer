@@ -1,4 +1,4 @@
-import type { APIResponse, ImageInfo, HealthData, VEXDocument, MatchingTagsResult } from './types';
+import type { APIResponse, ImageInfo, HealthData, VEXDocument, MatchingTagsResult, ScanResult } from './types';
 
 async function fetchJSON<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -40,4 +40,8 @@ export async function fetchMatchingTags(imageRef: string): Promise<MatchingTagsR
 
 export async function fetchHealth(): Promise<HealthData> {
   return fetchJSON<HealthData>('/api/health');
+}
+
+export async function scanImage(imageRef: string): Promise<ScanResult> {
+  return fetchJSON<ScanResult>(`/api/scan?image=${encodeURIComponent(imageRef)}`);
 }

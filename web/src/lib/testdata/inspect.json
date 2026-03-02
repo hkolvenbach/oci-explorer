@@ -1,0 +1,88 @@
+{
+    "success": true,
+    "data": {
+        "repository": "index.docker.io/dmitriylewen/alpine",
+        "tag": "3.21.2",
+        "digest": "sha256:400c6d7cb6c383172a0a482b11058444d72d60fb333a8257af648e83e044fd0d",
+        "created": "2025-01-08T12:07:30Z",
+        "architecture": "arm64",
+        "os": "linux",
+        "manifest": {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "config": {
+                "mediaType": "application/vnd.docker.container.image.v1+json",
+                "digest": "sha256:0dfc7372a237de5c22ff1a4c702ebf9fb35713e665bd8302daa0d55683370e48",
+                "size": 582
+            },
+            "layers": [
+                {
+                    "mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+                    "digest": "sha256:52f827f723504aa3325bb5a54247f0dc4b92bb72569525bc951532c4ef679bd4",
+                    "size": 3992359
+                }
+            ]
+        },
+        "config": {
+            "created": "2025-01-08T12:07:30Z",
+            "architecture": "arm64",
+            "os": "linux",
+            "config": {
+                "Env": [
+                    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                ],
+                "Cmd": [
+                    "/bin/sh"
+                ],
+                "WorkingDir": "/"
+            },
+            "rootfs": {
+                "type": "layers",
+                "diff_ids": [
+                    "sha256:89b59b1b7cb3f80a0c11656016099d1de77e8e2beed2a106ffda752615dfa3d8"
+                ]
+            },
+            "history": [
+                {
+                    "created": "2025-01-08T12:07:30Z",
+                    "created_by": "ADD alpine-minirootfs-3.21.2-aarch64.tar.gz / # buildkit",
+                    "comment": "buildkit.dockerfile.v0"
+                },
+                {
+                    "created": "2025-01-08T12:07:30Z",
+                    "created_by": "CMD [\"/bin/sh\"]",
+                    "empty_layer": true,
+                    "comment": "buildkit.dockerfile.v0"
+                }
+            ]
+        },
+        "tags": [
+            "3.21.2"
+        ],
+        "referrers": [
+            {
+                "type": "attestation",
+                "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                "digest": "sha256:8d32efcf9435634c7e3cc336296d7599d69a09e53d15ea4060aabec6f8e49669",
+                "size": 888,
+                "artifactType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+                "annotations": {
+                    "dev.sigstore.bundle.content": "dsse-envelope",
+                    "dev.sigstore.bundle.predicateType": "https://sigstore.dev/cosign/sign/v1",
+                    "org.opencontainers.image.created": "2025-11-24T09:45:16Z"
+                }
+            },
+            {
+                "type": "vex",
+                "mediaType": "application/vnd.dsse.envelope.v1+json",
+                "digest": "sha256:1f8b124ac110cd7049971d5cbfa02c96a981c7f661fd0f7a7ae95eda7eee33c6",
+                "size": 1212,
+                "artifactType": "https://openvex.dev/ns",
+                "annotations": {
+                    "in-toto.io/predicate-type": "https://openvex.dev/ns",
+                    "vnd.docker.reference.digest": "sha256:400c6d7cb6c383172a0a482b11058444d72d60fb333a8257af648e83e044fd0d"
+                }
+            }
+        ]
+    }
+}

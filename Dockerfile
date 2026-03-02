@@ -36,11 +36,13 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -buildvcs=false \
     -ldflags="-w -s -X main.Version=${VERSION}" -o /oci-explorer .
 
-# Trivy stage — download official release for the target platform
+# Trivy stage — download pinned release for the target platform
 FROM alpine:3.21 AS trivy-dl
 
+ARG TRIVY_VERSION=0.69.2
+
 RUN apk add --no-cache curl
-RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v${TRIVY_VERSION}
 
 # Runtime stage — distroless (zero CVEs, no shell, no package manager)
 FROM gcr.io/distroless/static-debian12

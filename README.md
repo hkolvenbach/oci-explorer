@@ -2,36 +2,42 @@
 
 A local Go application that visualizes OCI container image structures including layers, manifests, referrers, SBOMs, attestations, and other supply chain artifacts.
 
-![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.24+-00ADD8) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8) ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00) ![Trivy](https://img.shields.io/badge/Trivy-0.69+-1904DA) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
 
 ## Features
 
-- **Multi-platform Image Index** - Visualize fat manifests with multiple architecture variants
-- **Layer Inspection** - View layer digests, sizes, media types, and annotations
-- **Configuration Details** - See runtime config including entrypoint, cmd, env vars, exposed ports
-- **Build History** - Trace the Dockerfile commands that created each layer
-- **Referrers (OCI 1.1)** - View attached artifacts:
-  - Signatures (Notary, Cosign) with Sigstore certificate identity and OIDC issuer
-  - SBOMs (CycloneDX, SPDX) with inline download
-  - Attestations (SLSA Provenance, In-Toto)
-  - VEX (OpenVEX) with status badges and vulnerability details
-  - Vulnerability Scans
-- **Cosign Tag Discovery** - Finds `.sig` and `.att` cosign tags alongside OCI Referrers API
-- **Vulnerability Scanning (Trivy)** - On-demand CVE scanning with severity-grouped results, expandable details, fix versions, and links to vulnerability databases
-- **Matching Tags** - Discover which tags point to the same digest (e.g., `alpine:latest` → also `3.23.3`, `3.23`, `3`)
-- **Tag Listing** - Browse all tags for a repository
-- **Security Score** - At-a-glance 0-10 score with animated ring, grading supply chain artifact presence (signatures, SBOMs, attestations, VEX) with expandable detail panel
-- **Copyable Digests** - Click any SHA digest in the UI to copy it to the clipboard
-- **Graph View** - Interactive graph with pan/zoom showing relationships between components
-- **Mobile Responsive** - Adaptive layout that works on phones and tablets
-- **Version Display** - Backend binary version shown in the footer via `/api/health`
-- **Authentication** - Uses Docker credential helpers for private registries
+- **Multi-platform Image Index** - Visualize fat manifests with all architecture variants (linux/amd64, linux/arm64, etc.). Filter the entire UI by platform to see platform-specific layers, config, and referrers. The image summary shows total size, layer count, and platform count at a glance.
+- **Layer Inspection** - View every layer's digest, compressed size, media type, and annotations. Layers are listed in stack order matching the image filesystem.
+- **Configuration Details** - Full runtime configuration: architecture, OS, entrypoint, cmd, env vars, exposed ports, working directory, user, and labels. Build history traces each Dockerfile instruction that created a layer, including empty layers from `ENV` and `LABEL` commands.
+- **Referrers (OCI 1.1)** - Discover and inspect supply chain artifacts attached via the OCI Referrers API:
+  - **Signatures** (Notary, Cosign) with Sigstore certificate identity, OIDC issuer, and signature digest
+  - **SBOMs** (CycloneDX, SPDX) with one-click download of the full SBOM document
+  - **Attestations** (SLSA Provenance, In-Toto) with inline viewing of attestation payloads
+  - **VEX** (OpenVEX) with parsed statements showing vulnerability status, justifications, and affected products
+  - **Cosign Tag Discovery** — also finds `.sig` and `.att` cosign-style tags alongside the Referrers API
+- **Vulnerability Scanning ([Trivy](https://trivy.dev))** - On-demand CVE scanning with rich detail:
+  - CVSS scores from multiple sources (NVD, Red Hat, etc.) displayed per vulnerability and in expanded detail view
+  - Severity-grouped collapsible sections (CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN) with per-group counts
+  - Two-level filtering: global status filter (header chips) across all groups, plus per-section filter overrides
+  - Fixable / no-fix / VEXed status chips with counts at both the scan header and each severity group
+  - Expandable CVE details with package metadata, installed and fixed versions, and full description with preserved formatting
+  - Reference links to NVD, Red Hat, Debian, Ubuntu, GitHub Advisories, Aqua, and other vulnerability databases
+  - Automatic VEX cross-referencing: if the image has OpenVEX referrers, scan results are annotated with VEX status (not affected, fixed, under investigation)
+  - Deduplication of identical CVEs across multiple targets (e.g., Go stdlib vulnerabilities found in many binaries are merged into a single entry)
+- **Matching Tags** - Discover which tags in a repository point to the same digest. For Docker Hub and GCR/Artifact Registry, shows all aliases (e.g., `alpine:latest` → also `3.23.3`, `3.23`, `3`) with the current tag highlighted. Unsupported registries show an explanatory note.
+- **Tag Listing** - Browse all tags for a repository with clickable navigation to inspect any tag.
+- **Supply Chain Security Score** - At-a-glance 0–10 score with animated ring and letter grade. Evaluates supply chain artifact presence: signatures, SBOMs, attestations, VEX documents, minimal base image characteristics (few layers, small size, non-root user, no shell entrypoint). Expandable detail panel shows each criterion with pass/fail status.
+- **Graph View** - Interactive directed graph with pan, zoom, and fit-to-view controls. Shows the full image structure: image index, platform manifests, configs, layers, and all referrer artifacts (SBOMs, VEX, attestations, signatures) with color-coded nodes and relationship edges.
+- **Copyable Digests** - Click any SHA-256 digest in the UI to copy the full value to the clipboard.
+- **Mobile Responsive** - Adaptive layout with stacked columns on small screens and side-by-side panels on desktop.
+- **Authentication** - Uses Docker credential helpers (`~/.docker/config.json`) for private registries. Supports Docker Hub, GHCR, GCR, ECR, and any registry with a configured credential helper.
 
 ## Quick Start
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.25 or later
+- Node.js 22+ (for building the Svelte frontend)
 - Make (optional, for build automation)
 - [Trivy](https://trivy.dev) v0.69+ (optional, for vulnerability scanning)
 
@@ -45,10 +51,11 @@ cd oci-explorer
 # Download dependencies
 go mod tidy
 
-# Build and run
+# Build and run (Docker — includes Trivy)
 make run
 
-# Or manually
+# Or manually (requires frontend build first)
+cd web && npm ci && npm run build && cd ..
 go build -o build/oci-explorer .
 ./build/oci-explorer
 ```
@@ -61,11 +68,11 @@ The application starts a web server at http://localhost:8080
 
 ```
 ┌─────────────────────────────────────────────────┐
-│            🐳 OCI Image Explorer                │
+│           🐳 OCI Image Explorer                 │
 ├─────────────────────────────────────────────────┤
 │  URL:      http://localhost:8080                │
 │  Platform: darwin/arm64                         │
-│  Version:  0.1.0                                │
+│  Version:  0.5.0                                │
 │  Press Ctrl+C to stop                           │
 └─────────────────────────────────────────────────┘
 ```
@@ -76,19 +83,25 @@ The application starts a web server at http://localhost:8080
 
 ### Details View
 
-Inspecting `ghcr.io/hkolvenbach/oci-explorer:latest` — shows platforms, layers, configuration, and build history:
+Inspecting `ghcr.io/hkolvenbach/oci-explorer:latest` — shows supply chain security score, platforms, layers, configuration, and referrers at a glance:
 
 ![Details view](docs/screenshots/details.png)
 
 ### Referrers View
 
-Supply chain artifacts: cosign signatures with Sigstore identity, SBOMs, attestations, and VEX documents:
+Supply chain artifacts discovered via the OCI Referrers API: SBOMs (CycloneDX), cosign signatures with Sigstore identity, attestations (SLSA Provenance), and VEX documents:
 
 ![Referrers view](docs/screenshots/referrers.png)
 
+### Vulnerability Scan
+
+On-demand Trivy scan of `golang:1.21` — 4,088 deduplicated vulnerabilities across 5 severity levels. Header chips show fixable/no-fix totals; each severity group has its own filter overrides. Expanding a CVE reveals CVSS scores by source (NVD, Red Hat, etc.), package metadata, description, and reference links to vulnerability databases. If the image carries OpenVEX referrers, affected CVEs are automatically annotated with VEX status:
+
+![Vulnerability scan](docs/screenshots/scan.png)
+
 ### Graph View
 
-Interactive graph visualization of the full image structure:
+Interactive graph visualization of the full image structure with SBOMs, VEX, attestations, and signatures:
 
 ![Graph view](docs/screenshots/graph.png)
 
@@ -368,8 +381,13 @@ oci-explorer/
 ├── tools/
 │   ├── download-alpine/ # Alpine test data downloader
 │   └── sbom-extractor/  # Reference SBOM extraction tool
-├── web/
-│   └── index.html       # Embedded web UI
+├── web/                 # Svelte 5 + TypeScript frontend (Vite)
+│   ├── src/
+│   │   ├── components/  # Svelte components
+│   │   ├── lib/         # API client, types, state, utilities
+│   │   ├── App.svelte   # Root component
+│   │   └── main.ts      # Entry point
+│   └── package.json
 ├── Dockerfile           # Container build
 ├── fly.toml             # Fly.io deployment config
 ├── main.go              # HTTP server and handlers
@@ -383,8 +401,15 @@ oci-explorer/
 
 ## Dependencies
 
+### Backend
 - [google/go-containerregistry](https://github.com/google/go-containerregistry) - OCI registry client
 - [gorilla/mux](https://github.com/gorilla/mux) - HTTP router
+- [Trivy](https://github.com/aquasecurity/trivy) - Vulnerability scanner (Apache 2.0 license, bundled in Docker image)
+
+### Frontend
+- [Svelte 5](https://svelte.dev) - Reactive UI framework
+- [Tailwind CSS 4](https://tailwindcss.com) - Utility-first CSS
+- [Vite 6](https://vite.dev) - Build tool
 
 ## OCI Specification Support
 
