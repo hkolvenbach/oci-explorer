@@ -19,7 +19,7 @@ import (
 	"github.com/hkolvenbach/oci-explorer/registry"
 )
 
-//go:embed web/*
+//go:embed web/dist/*
 var webFS embed.FS
 
 //go:embed docs/*
@@ -128,14 +128,19 @@ func main() {
 
 	// Serve embedded web files with cache-busting headers for HTML
 	logVerbose("Setting up embedded web file server...")
-	webContent, err := fs.Sub(webFS, "web")
+	webContent, err := fs.Sub(webFS, "web/dist")
 	if err != nil {
 		log.Fatal(err)
 	}
 	webFileServer := http.FileServer(http.FS(webContent))
 	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// Prevent browsers from caching stale HTML after binary upgrades
-		w.Header().Set("Cache-Control", "no-cache")
+		// Vite hashed assets (e.g. /assets/index-Ab12Cd.js) are immutable
+		if len(req.URL.Path) > 8 && req.URL.Path[:8] == "/assets/" {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			// HTML and other files: prevent stale cache after binary upgrades
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		webFileServer.ServeHTTP(w, req)
 	})
 

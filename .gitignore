@@ -8,6 +8,7 @@ oci-explorer
 
 # Build output
 /build/
+web/dist/
 
 # Dependencies
 /vendor/

@@ -1,0 +1,142 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "govulncheck/vex:4adea46f3608e1344c203f9f70cfa9dedb1ee3e28a71baf53753b625776d5dbd",
+  "author": "Unknown Author",
+  "timestamp": "2026-02-22T11:04:20.303849Z",
+  "version": 1,
+  "tooling": "https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck",
+  "statements": [
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2025-4155",
+        "name": "GO-2025-4155",
+        "description": "Excessive resource consumption when printing error string for host certificate validation in crypto/x509",
+        "aliases": [
+          "CVE-2025-61729",
+          "CVE-2025-61729"
+        ]
+      },
+      "products": [
+        {
+          "@id": "Unknown Product",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/stdlib@v1.25.4"
+            }
+          ]
+        }
+      ],
+      "status": "affected"
+    },
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2025-4175",
+        "name": "GO-2025-4175",
+        "description": "Improper application of excluded DNS name constraints when verifying wildcard names in crypto/x509",
+        "aliases": [
+          "CVE-2025-61727"
+        ]
+      },
+      "products": [
+        {
+          "@id": "Unknown Product",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/stdlib@v1.25.4"
+            }
+          ]
+        }
+      ],
+      "status": "affected"
+    },
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2026-4337",
+        "name": "GO-2026-4337",
+        "description": "Unexpected session resumption in crypto/tls",
+        "aliases": [
+          "CVE-2025-68121"
+        ]
+      },
+      "products": [
+        {
+          "@id": "Unknown Product",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/stdlib@v1.25.4"
+            }
+          ]
+        }
+      ],
+      "status": "affected"
+    },
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2026-4340",
+        "name": "GO-2026-4340",
+        "description": "Handshake messages may be processed at the incorrect encryption level in crypto/tls",
+        "aliases": [
+          "CVE-2025-61730",
+          "CVE-2025-61730"
+        ]
+      },
+      "products": [
+        {
+          "@id": "Unknown Product",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/stdlib@v1.25.4"
+            }
+          ]
+        }
+      ],
+      "status": "affected"
+    },
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2026-4341",
+        "name": "GO-2026-4341",
+        "description": "Memory exhaustion in query parameter parsing in net/url",
+        "aliases": [
+          "CVE-2025-61726",
+          "CVE-2025-61726"
+        ]
+      },
+      "products": [
+        {
+          "@id": "Unknown Product",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/stdlib@v1.25.4"
+            }
+          ]
+        }
+      ],
+      "status": "affected"
+    },
+    {
+      "vulnerability": {
+        "@id": "https://pkg.go.dev/vuln/GO-2026-4342",
+        "name": "GO-2026-4342",
+        "description": "Excessive CPU consumption when building archive index in archive/zip",
+        "aliases": [
+          "CVE-2025-61728",
+          "CVE-2025-61728"
+        ]
+      },
+      "products": [
+        {
+          "@id": "Unknown Product",
+          "subcomponents": [
+            {
+              "@id": "pkg:golang/stdlib@v1.25.4"
+            }
+          ]
+        }
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "Govulncheck determined that the vulnerable code isn't called"
+    }
+  ]
+}
