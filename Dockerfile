@@ -1,5 +1,5 @@
 # Frontend build stage
-FROM node:22-alpine AS frontend
+FROM node:22.14-alpine AS frontend
 
 WORKDIR /app/web
 
@@ -10,7 +10,7 @@ COPY web/ ./
 RUN npm run build
 
 # Go build stage
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH

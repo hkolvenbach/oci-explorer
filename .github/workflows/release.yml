@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22"
+          node-version: "22.14"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
 
@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: "1.24.13"
+          go-version: "1.25.7"
 
       - name: Verify dependencies
         run: go mod download && go mod verify
@@ -60,7 +60,7 @@ jobs:
 
       - name: Determine semantic version
         id: semver
-        uses: paulhatch/semantic-version@v5.4.0
+        uses: paulhatch/semantic-version@a8f8f59fd7f0625188492e945240f12d7ad2dca3 # v5.4.0
         with:
           tag_prefix: "v"
           major_pattern: "MAJOR"
@@ -83,13 +83,13 @@ jobs:
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "22"
+          node-version: "22.14"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: "1.24.13"
+          go-version: "1.25.7"
 
       - name: Verify dependencies
         run: go mod download && go mod verify
@@ -138,7 +138,7 @@ jobs:
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: "1.24.13"
+          go-version: "1.25.7"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@c56c2d3e59e4281cc41dea2217323ba5694b171e # v3.8.0
@@ -290,7 +290,7 @@ jobs:
         if: inputs.dry-run != true
         run: |
           # Install Trivy
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.2/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.2
 
       - name: Verify signatures and attestations (smoke test)
         if: inputs.dry-run != true
