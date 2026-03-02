@@ -667,6 +667,130 @@ Content-Type: application/json
 
 ---
 
+### GET /api/scan
+
+Scan a container image for known vulnerabilities using Trivy.
+
+**Requires [Trivy](https://trivy.dev) installed locally** (v0.69+). The scan runs as a subprocess and typically completes in 1-2 seconds.
+
+#### Request
+
+```http
+GET /api/scan?image=nginx:latest HTTP/1.1
+Host: localhost:8080
+```
+
+#### Query Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `image` | Yes | Image reference (e.g., `nginx:latest`, `alpine:3.19`) |
+
+#### Response (Success)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "success": true,
+  "data": {
+    "artifactName": "nginx:latest",
+    "scanTime": "2024-03-01T12:00:00Z",
+    "severityCounts": {
+      "CRITICAL": 2,
+      "HIGH": 5,
+      "MEDIUM": 12
+    },
+    "totalCount": 19,
+    "bySeverity": {
+      "CRITICAL": [
+        {
+          "vulnerabilityID": "CVE-2024-0001",
+          "pkgName": "openssl",
+          "installedVersion": "3.0.13-1~deb12u1",
+          "fixedVersion": "3.0.13-1~deb12u2",
+          "severity": "CRITICAL",
+          "title": "OpenSSL: Buffer overflow",
+          "description": "A buffer overflow in OpenSSL...",
+          "primaryURL": "https://avd.aquasec.com/nvd/cve-2024-0001",
+          "references": [],
+          "target": "nginx:latest (debian 12.5)"
+        }
+      ]
+    },
+    "targets": [
+      {
+        "target": "nginx:latest (debian 12.5)",
+        "class": "os-pkgs",
+        "type": "debian",
+        "count": 19
+      }
+    ]
+  }
+}
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `artifactName` | string | Scanned image reference |
+| `scanTime` | string | UTC timestamp of when the scan was performed |
+| `severityCounts` | object | Map of severity level to count (CRITICAL, HIGH, MEDIUM, LOW, UNKNOWN) |
+| `totalCount` | integer | Total number of vulnerabilities found |
+| `bySeverity` | object | Vulnerabilities grouped by severity level |
+| `targets` | array | Per-target scan metadata |
+
+#### VulnSummary Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `vulnerabilityID` | string | CVE or vulnerability identifier |
+| `pkgName` | string | Affected package name |
+| `installedVersion` | string | Currently installed version |
+| `fixedVersion` | string | Version with fix (empty if no fix available) |
+| `severity` | string | CRITICAL, HIGH, MEDIUM, LOW, or UNKNOWN |
+| `title` | string | Short vulnerability title |
+| `description` | string | Full vulnerability description |
+| `primaryURL` | string | Link to vulnerability details (typically Aqua AVD) |
+| `references` | array | Additional reference URLs |
+| `target` | string | Scan target this vulnerability belongs to |
+
+#### Error Responses
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{
+  "success": false,
+  "error": "image parameter is required"
+}
+```
+
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
+
+{
+  "success": false,
+  "error": "trivy is not installed or not in PATH: exec: \"trivy\": executable file not found in $PATH"
+}
+```
+
+#### Examples
+
+```bash
+# Scan an image with vulnerabilities
+curl "http://localhost:8080/api/scan?image=nginx:latest"
+
+# Scan a minimal image (likely clean)
+curl "http://localhost:8080/api/scan?image=alpine:latest"
+```
+
+---
+
 ## Error Handling
 
 All API responses follow a consistent format:
