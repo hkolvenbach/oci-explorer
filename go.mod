@@ -6,7 +6,7 @@ require (
 	github.com/google/go-containerregistry v0.20.7
 	github.com/gorilla/mux v1.8.1
 	github.com/yuin/goldmark v1.7.16
-	golang.org/x/sync v0.19.0
+	golang.org/x/sync v0.20.0
 )
 
 require (
