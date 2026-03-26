@@ -17,14 +17,14 @@
       type="text"
       bind:value={appState.searchQuery}
       placeholder="Enter image reference (e.g., nginx:latest, ghcr.io/org/image:tag)"
-      class="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 font-mono text-sm"
+      class="w-full pl-10 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-md text-slate-100 placeholder-slate-500 focus:outline-none focus:border-orange-500 search-glow font-mono text-sm"
       onkeypress={handleKeypress}
     />
   </div>
   <button
     onclick={oninspect}
     disabled={appState.isLoading}
-    class="px-6 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 rounded-lg font-semibold transition-colors flex items-center gap-2"
+    class="px-6 py-3 bg-orange-500 hover:bg-orange-400 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed rounded-md font-semibold transition-colors flex items-center gap-2"
   >
     {#if appState.isLoading}
       <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">

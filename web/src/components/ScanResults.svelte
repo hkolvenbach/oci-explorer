@@ -6,11 +6,11 @@
 
   const severityOrder = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN'];
   const severityColors: Record<string, { bg: string; text: string; border: string; badge: string; badgeOff: string }> = {
-    CRITICAL: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30', badge: 'bg-red-500/20 text-red-300', badgeOff: 'bg-red-500/5 text-red-400/40' },
-    HIGH: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/30', badge: 'bg-orange-500/20 text-orange-300', badgeOff: 'bg-orange-500/5 text-orange-400/40' },
-    MEDIUM: { bg: 'bg-yellow-500/10', text: 'text-yellow-400', border: 'border-yellow-500/30', badge: 'bg-yellow-500/20 text-yellow-300', badgeOff: 'bg-yellow-500/5 text-yellow-400/40' },
-    LOW: { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/30', badge: 'bg-blue-500/20 text-blue-300', badgeOff: 'bg-blue-500/5 text-blue-400/40' },
-    UNKNOWN: { bg: 'bg-slate-500/10', text: 'text-slate-400', border: 'border-slate-500/30', badge: 'bg-slate-500/20 text-slate-300', badgeOff: 'bg-slate-500/5 text-slate-400/40' },
+    CRITICAL: { bg: 'bg-red-500/15', text: 'text-red-400', border: 'border-red-500/40', badge: 'bg-red-500/25 text-red-200', badgeOff: 'bg-red-500/5 text-red-400/40' },
+    HIGH: { bg: 'bg-orange-500/15', text: 'text-orange-400', border: 'border-orange-500/40', badge: 'bg-orange-500/25 text-orange-200', badgeOff: 'bg-orange-500/5 text-orange-400/40' },
+    MEDIUM: { bg: 'bg-yellow-500/15', text: 'text-yellow-400', border: 'border-yellow-500/40', badge: 'bg-yellow-500/25 text-yellow-200', badgeOff: 'bg-yellow-500/5 text-yellow-400/40' },
+    LOW: { bg: 'bg-blue-500/15', text: 'text-blue-400', border: 'border-blue-500/40', badge: 'bg-blue-500/25 text-blue-200', badgeOff: 'bg-blue-500/5 text-blue-400/40' },
+    UNKNOWN: { bg: 'bg-slate-500/15', text: 'text-slate-400', border: 'border-slate-500/40', badge: 'bg-slate-500/25 text-slate-200', badgeOff: 'bg-slate-500/5 text-slate-400/40' },
   };
 
   // All severities present in the results
@@ -262,12 +262,12 @@
                       {vuln.vulnerabilityID}
                     </a>
                     {#if vuln.cvssScore}
-                      <span class="px-1.5 py-0.5 text-[10px] rounded font-mono bg-slate-600/30 text-slate-300">{vuln.cvssScore.toFixed(1)}</span>
+                      <span class="px-1.5 py-0.5 text-[10px] rounded font-mono bg-slate-600/50 text-slate-200 font-semibold">{vuln.cvssScore.toFixed(1)}</span>
                     {/if}
                     <span class="text-xs text-slate-400 font-mono truncate">{vuln.pkgName}</span>
                   </div>
                   {#if vuln.title}
-                    <p class="text-xs text-slate-500 mt-0.5 truncate">{vuln.title}</p>
+                    <p class="text-xs text-slate-400 mt-0.5 truncate">{vuln.title}</p>
                   {/if}
                 </div>
                 <!-- Badges on the right -->

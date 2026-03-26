@@ -2,6 +2,27 @@
 
 @theme {
   --color-slate-850: #172033;
+  --font-sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+}
+
+/* Search focus glow */
+.search-glow:focus {
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+}
+
+/* Dot-grid background for welcome */
+.dot-grid {
+  background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Quick-start button lift */
+.btn-lift {
+  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out, background-color 0.15s ease-out, border-color 0.15s ease-out;
+}
+.btn-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 
 /* Custom scrollbar */
@@ -45,4 +66,12 @@
 
 .fade-in {
   animation: fadeIn 0.3s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in, .score-ring, .animate-spin {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
