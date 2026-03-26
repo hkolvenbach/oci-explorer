@@ -27,8 +27,7 @@
 </script>
 
 <div class="text-center py-16 dot-grid">
-  <h2 class="text-3xl font-bold tracking-tight text-slate-100 mb-2">What's inside your container?</h2>
-  <p class="text-sm text-slate-400 mb-8">Enter an image above or pick one:</p>
+  <h2 class="text-3xl font-bold tracking-tight text-slate-100 mb-8">What's inside your container?</h2>
   <div class="flex flex-wrap justify-center gap-3">
     {#each examples as ex}
       <button
