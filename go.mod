@@ -5,7 +5,7 @@ go 1.25.8
 require (
 	github.com/google/go-containerregistry v0.21.3
 	github.com/gorilla/mux v1.8.1
-	github.com/yuin/goldmark v1.7.16
+	github.com/yuin/goldmark v1.8.2
 	golang.org/x/sync v0.20.0
 )
 
