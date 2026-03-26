@@ -4,6 +4,8 @@ A local Go application that visualizes OCI container image structures including 
 
 ![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8) ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00) ![Trivy](https://img.shields.io/badge/Trivy-0.69+-1904DA) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
 
+**[Try it live at ociexplorer.dev](https://ociexplorer.dev)** — no install needed. Or [run it locally](#quick-start) for private registries and vulnerability scanning.
+
 ## Features
 
 - **Multi-platform Image Index** - Visualize fat manifests with all architecture variants (linux/amd64, linux/arm64, etc.). Filter the entire UI by platform to see platform-specific layers, config, and referrers. The image summary shows total size, layer count, and platform count at a glance.
