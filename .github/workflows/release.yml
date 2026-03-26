@@ -37,7 +37,7 @@ jobs:
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: "1.25.7"
+          go-version: "1.25.8"
 
       - name: Verify dependencies
         run: go mod download && go mod verify
@@ -89,7 +89,7 @@ jobs:
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: "1.25.7"
+          go-version: "1.25.8"
 
       - name: Verify dependencies
         run: go mod download && go mod verify
@@ -138,7 +138,7 @@ jobs:
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: "1.25.7"
+          go-version: "1.25.8"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@c56c2d3e59e4281cc41dea2217323ba5694b171e # v3.8.0

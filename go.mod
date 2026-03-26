@@ -1,6 +1,6 @@
 module github.com/hkolvenbach/oci-explorer
 
-go 1.25.7
+go 1.25.8
 
 require (
 	github.com/google/go-containerregistry v0.20.7
