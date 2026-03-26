@@ -114,7 +114,7 @@ try {
 
   // ── 1. Welcome / landing page ──
   await page.goto(BASE, { waitUntil: "networkidle" });
-  await page.waitForSelector('text=Welcome to OCI Image Explorer', { timeout: 5000 });
+  await page.waitForSelector("text=What's inside your container?", { timeout: 5000 });
   await page.screenshot({ path: resolve(OUT_DIR, "welcome.png") });
   console.log("Captured welcome.png");
 
