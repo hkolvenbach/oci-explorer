@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -32,6 +33,7 @@ var Version = "dev"
 
 // Global verbose flag
 var verbose bool
+var jsonLogs bool
 
 // APIResponse is the standard API response format
 type APIResponse struct {
@@ -40,17 +42,15 @@ type APIResponse struct {
 	Error   string      `json:"error,omitempty"`
 }
 
-// logVerbose prints a message only if verbose mode is enabled
+// logVerbose logs at debug level (visible only in verbose mode).
 func logVerbose(format string, args ...interface{}) {
-	if verbose {
-		log.Printf("[VERBOSE] "+format, args...)
-	}
+	slog.Debug(fmt.Sprintf(format, args...))
 }
 
 // writeJSON writes a JSON response to the http.ResponseWriter
 func writeJSON(w http.ResponseWriter, data interface{}) {
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding JSON response: %v", err)
+		slog.Error("json encode failed", "error", err)
 	}
 }
 
@@ -69,7 +69,7 @@ func writeBadRequest(w http.ResponseWriter, msg string) {
 // writeBytes writes bytes to the http.ResponseWriter
 func writeBytes(w http.ResponseWriter, data []byte) {
 	if _, err := w.Write(data); err != nil {
-		log.Printf("Error writing response: %v", err)
+		slog.Error("write response failed", "error", err)
 	}
 }
 
@@ -77,8 +77,27 @@ func main() {
 	// Parse command line flags
 	flag.BoolVar(&verbose, "verbose", false, "Enable verbose logging")
 	flag.BoolVar(&verbose, "v", false, "Enable verbose logging (shorthand)")
+	flag.BoolVar(&jsonLogs, "json-logs", false, "Output logs in JSON format (for structured log shipping)")
 	port := flag.String("port", "", "HTTP server port (default: 8080, or PORT env var)")
 	flag.Parse()
+
+	// Env var fallback for JSON logs
+	if !jsonLogs && os.Getenv("LOG_FORMAT") == "json" {
+		jsonLogs = true
+	}
+
+	// Configure structured logging
+	logLevel := slog.LevelInfo
+	if verbose {
+		logLevel = slog.LevelDebug
+	}
+	var logHandler slog.Handler
+	if jsonLogs {
+		logHandler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})
+	} else {
+		logHandler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: logLevel})
+	}
+	slog.SetDefault(slog.New(logHandler))
 
 	// Determine port
 	serverPort := *port
@@ -90,9 +109,8 @@ func main() {
 	}
 
 	if verbose {
-		log.Println("[VERBOSE] Verbose mode enabled")
-		log.Printf("[VERBOSE] Version: %s", Version)
-		log.Printf("[VERBOSE] Platform: %s/%s", runtime.GOOS, runtime.GOARCH)
+		slog.Debug("verbose mode enabled")
+		slog.Debug("startup", "version", Version, "platform", fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH))
 	}
 
 	// Set verbose mode in registry client and scanner
@@ -212,18 +230,18 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Inspecting image: %s", imageRef)
-	logVerbose("Request from: %s", r.RemoteAddr)
+	slog.Info("inspect", "image", imageRef)
+	slog.Debug("inspect", "image", imageRef, "remote_addr", r.RemoteAddr)
 
 	client := registry.NewClient()
 	imageInfo, err := client.InspectImage(imageRef)
 	if err != nil {
-		log.Printf("Error inspecting image: %v", err)
+		slog.Error("inspect failed", "image", imageRef, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	logVerbose("Successfully fetched image info for %s", imageRef)
+	slog.Debug("inspect complete", "image", imageRef)
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{Success: true, Data: imageInfo})
 }
@@ -238,13 +256,13 @@ func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Downloading SBOM from %s@%s", repo, digest)
-	logVerbose("Request from: %s", r.RemoteAddr)
+	slog.Info("sbom download", "repository", repo, "digest", digest)
+	slog.Debug("sbom download", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
 	client := registry.NewClient()
 	sbomData, contentType, err := client.FetchSBOMContent(repo, digest)
 	if err != nil {
-		log.Printf("Error fetching SBOM: %v", err)
+		slog.Error("sbom download failed", "repository", repo, "digest", digest, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -268,13 +286,13 @@ func handleFetchVEX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Fetching VEX from %s@%s", repo, digest)
-	logVerbose("Request from: %s", r.RemoteAddr)
+	slog.Info("vex fetch", "repository", repo, "digest", digest)
+	slog.Debug("vex fetch", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
 	client := registry.NewClient()
 	vexDoc, err := client.FetchVEXContent(repo, digest)
 	if err != nil {
-		log.Printf("Error fetching VEX: %v", err)
+		slog.Error("vex fetch failed", "repository", repo, "digest", digest, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -330,13 +348,13 @@ func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Looking up matching tags for: %s", imageRef)
-	logVerbose("Request from: %s", r.RemoteAddr)
+	slog.Info("matching-tags", "image", imageRef)
+	slog.Debug("matching-tags", "image", imageRef, "remote_addr", r.RemoteAddr)
 
 	client := registry.NewClient()
 	result, err := client.GetMatchingTags(imageRef)
 	if err != nil {
-		log.Printf("Error looking up matching tags: %v", err)
+		slog.Error("matching-tags failed", "image", imageRef, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -354,12 +372,12 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Scanning image for vulnerabilities: %s", imageRef)
-	logVerbose("Request from: %s", r.RemoteAddr)
+	slog.Info("scan", "image", imageRef)
+	slog.Debug("scan", "image", imageRef, "remote_addr", r.RemoteAddr)
 
 	result, err := scanner.ScanImage(r.Context(), imageRef)
 	if err != nil {
-		log.Printf("Error scanning image: %v", err)
+		slog.Error("scan failed", "image", imageRef, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
