@@ -1,10 +1,16 @@
 # OCI Image Explorer
 
-A local Go application that visualizes OCI container image structures including layers, manifests, referrers, SBOMs, attestations, and other supply chain artifacts.
+Visualize OCI container image structures including layers, manifests, referrers, SBOMs, attestations, and other supply chain artifacts. Built with Go and Svelte.
 
 ![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.25+-00ADD8) ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00) ![Trivy](https://img.shields.io/badge/Trivy-0.69+-1904DA) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
 
-**[Try it live at ociexplorer.dev](https://ociexplorer.dev)** — no install needed. Or [run it locally](#quick-start) for private registries and vulnerability scanning.
+---
+
+<h3><img src="web/public/favicon.svg" width="22" height="22" align="absmiddle" alt="logo" />&nbsp; Try it live at <a href="https://ociexplorer.dev">ociexplorer.dev</a></h3>
+
+<sub>You can also [run it locally](#quick-start) for private registries and vulnerability scanning.</sub>
+
+---
 
 ## Features
 
