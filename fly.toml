@@ -7,7 +7,11 @@ app = 'oci-explorer'
 primary_region = 'fra'
 
 [build]
-  dockerfile = 'Dockerfile'
+  image = 'ghcr.io/hkolvenbach/oci-explorer:latest'
+  # To build from source instead: dockerfile = 'Dockerfile'
+
+[env]
+  LOG_FORMAT = 'json'
 
 [http_service]
   internal_port = 8080
@@ -29,6 +33,6 @@ primary_region = 'fra'
     path = '/api/health'
 
 [[vm]]
-  memory = '1gb'
+  memory = '512mb'
   cpus = 1
-  memory_mb = 1024
+  memory_mb = 512
