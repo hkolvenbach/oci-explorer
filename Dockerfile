@@ -37,7 +37,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     -ldflags="-w -s -X main.Version=${VERSION}" -o /oci-explorer .
 
 # Trivy stage — download pinned release for the target platform
-FROM alpine:3.21 AS trivy-dl
+FROM alpine:3.23 AS trivy-dl
 
 ARG TRIVY_VERSION=0.69.2
 
