@@ -95,7 +95,7 @@
 </script>
 
 <!-- Same style as other sections: slate-700 border, slate-800/50 bg -->
-<div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-6 fade-in">
+<div class="border border-slate-700 rounded-md overflow-hidden bg-slate-800/50 mb-6 fade-in">
   <!-- Header bar - matches CollapsibleSection header style -->
   <div class="flex items-center justify-between px-4 py-3 bg-slate-800">
     <div class="flex items-center gap-3">

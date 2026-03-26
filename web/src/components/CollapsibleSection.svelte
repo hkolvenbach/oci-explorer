@@ -34,7 +34,7 @@
   }
 </script>
 
-<div class="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/50 mb-4 fade-in">
+<div class="border border-slate-700 rounded-md overflow-hidden bg-slate-800/50 mb-4 fade-in">
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <div class="flex items-center justify-between bg-slate-800 hover:bg-slate-700 transition-colors cursor-pointer" role="button" tabindex="0" onclick={toggle} onkeydown={onKeydown}>
     <div class="flex-1 px-4 py-3 flex items-center justify-between">
@@ -44,7 +44,7 @@
         {/if}
         <span class="font-semibold text-slate-100">{title}</span>
         {#if badge}
-          <span class="px-2 py-0.5 text-xs bg-blue-500/20 text-blue-300 rounded-full">{badge}</span>
+          <span class="px-2 py-0.5 text-xs bg-slate-600/50 text-slate-300 rounded">{badge}</span>
         {/if}
       </div>
       <svg

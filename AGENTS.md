@@ -223,6 +223,16 @@ Run `make upgrade` regularly when adding features. It updates Go modules, npm pa
 
 - Standalone helper utilities (each has its own `go.mod`)
 
+## Favicon
+
+The favicon is an SVG (`web/public/favicon.svg`) with a solid orange background showing the OCI cube icon. No `.ico` file is needed — modern browsers all support SVG favicons.
+
+To regenerate the `.ico` if ever needed (requires ImageMagick 7 with SVG support):
+```bash
+magick -background none -density 256 web/public/favicon.svg -resize 32x32 PNG32:/tmp/fav32.png
+magick /tmp/fav32.png web/public/favicon.ico
+```
+
 ## Troubleshooting
 
 ### Go Installation Issues
