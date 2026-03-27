@@ -12,17 +12,47 @@ import (
 	"io"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/sync/singleflight"
 )
 
 // ErrNotFound is returned when a cache entry does not exist or has expired.
 var ErrNotFound = errors.New("cache: not found")
+
+// Prometheus metrics
+var (
+	cacheRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "oci_cache_requests_total",
+		Help: "Total cache requests by endpoint and result (hit, miss, error).",
+	}, []string{"endpoint", "result"})
+
+	cacheLatency = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "oci_cache_latency_seconds",
+		Help:    "Cache operation latency in seconds.",
+		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1},
+	}, []string{"endpoint", "operation"})
+
+	cacheBytes = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "oci_cache_bytes_total",
+		Help: "Total bytes stored in cache (uncompressed).",
+	}, []string{"endpoint"})
+)
+
+// endpointFromKey extracts the endpoint prefix from a cache key (e.g., "inspect/sha256:..." -> "inspect").
+func endpointFromKey(key string) string {
+	if i := strings.IndexByte(key, '/'); i >= 0 {
+		return key[:i]
+	}
+	return key
+}
 
 // s3API is the subset of the S3 client used by Store, enabling test mocks.
 type s3API interface {
@@ -146,6 +176,8 @@ func (s *Store) Set(ctx context.Context, key string, data []byte, ttl time.Durat
 		return fmt.Errorf("cache set %q: %w", key, err)
 	}
 
+	endpoint := endpointFromKey(key)
+	cacheBytes.WithLabelValues(endpoint).Add(float64(len(data)))
 	slog.Debug("cache set", "key", key, "size", len(data), "compressed", buf.Len(), "ttl", ttl)
 	return nil
 }
@@ -153,15 +185,24 @@ func (s *Store) Set(ctx context.Context, key string, data []byte, ttl time.Durat
 // GetOrCompute returns cached data for the key, or computes it via fn on a miss.
 // Uses singleflight to deduplicate concurrent calls for the same key.
 func (s *Store) GetOrCompute(ctx context.Context, key string, ttl time.Duration, fn func() ([]byte, error)) (*Result, error) {
+	endpoint := endpointFromKey(key)
+
 	// Try cache first
+	start := time.Now()
 	data, cachedAt, err := s.Get(ctx, key)
+	getLatency := time.Since(start).Seconds()
+
 	if err == nil {
-		slog.Debug("cache hit", "key", key)
+		cacheRequests.WithLabelValues(endpoint, "hit").Inc()
+		cacheLatency.WithLabelValues(endpoint, "get").Observe(getLatency)
+		slog.Info("cache hit", "key", key, "latency_ms", int(getLatency*1000))
 		return &Result{Data: data, FromCache: true, CachedAt: cachedAt}, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
-		// Log S3 errors but proceed to compute (cache is best-effort)
+		cacheRequests.WithLabelValues(endpoint, "error").Inc()
 		slog.Warn("cache get error, computing fresh", "key", key, "error", err)
+	} else {
+		cacheLatency.WithLabelValues(endpoint, "get").Observe(getLatency)
 	}
 
 	// Cache miss -- compute with singleflight deduplication
@@ -171,11 +212,15 @@ func (s *Store) GetOrCompute(ctx context.Context, key string, ttl time.Duration,
 	}
 
 	v, err, _ := s.group.Do(key, func() (any, error) {
-		slog.Debug("cache miss, computing", "key", key)
+		slog.Info("cache miss, computing", "key", key)
+		cacheRequests.WithLabelValues(endpoint, "miss").Inc()
+
+		computeStart := time.Now()
 		result, err := fn()
 		if err != nil {
 			return nil, err
 		}
+		cacheLatency.WithLabelValues(endpoint, "compute").Observe(time.Since(computeStart).Seconds())
 
 		// Store in background (don't block the response on S3 write)
 		now := time.Now().UTC()

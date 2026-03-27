@@ -18,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/hkolvenbach/oci-explorer/cache"
 	"github.com/hkolvenbach/oci-explorer/docshandler"
 	"github.com/hkolvenbach/oci-explorer/registry"
@@ -40,12 +41,13 @@ var jsonLogs bool
 // cacheStore is the global response cache (nil when caching is disabled).
 var cacheStore *cache.Store
 
-// Cache TTLs per endpoint type.
+// Cache TTLs per endpoint type. All keys are SHA256 digest-based (immutable);
+// the tag-to-digest resolution (ResolveDigest) runs on every request and is never cached.
 const (
-	inspectCacheTTL = 7 * 24 * time.Hour  // 7 days -- immutable for a given digest
-	scanCacheTTL    = 24 * time.Hour       // 24 hours -- Trivy DB updates daily
-	sbomCacheTTL    = 30 * 24 * time.Hour  // 30 days -- content-addressed, immutable
-	vexCacheTTL     = 30 * 24 * time.Hour  // 30 days -- content-addressed, immutable
+	inspectCacheTTL = 30 * 24 * time.Hour // 30 days -- immutable for a given digest
+	scanCacheTTL    = 24 * time.Hour      // 24 hours -- Trivy DB updates daily
+	sbomCacheTTL    = 30 * 24 * time.Hour // 30 days -- content-addressed, immutable
+	vexCacheTTL     = 30 * 24 * time.Hour // 30 days -- content-addressed, immutable
 )
 
 // APIResponse is the standard API response format
@@ -165,6 +167,7 @@ func main() {
 	api.HandleFunc("/vex", handleFetchVEX).Methods("GET", "OPTIONS")
 	api.HandleFunc("/scan", handleScanImage).Methods("GET", "OPTIONS")
 	api.HandleFunc("/health", handleHealth).Methods("GET")
+	api.Handle("/metrics", promhttp.Handler()).Methods("GET")
 	api.HandleFunc("/openapi.yaml", docsHandler.ServeOpenAPISpec).Methods("GET")
 	logVerbose("  - GET /api/inspect")
 	logVerbose("  - GET /api/tags")
@@ -173,6 +176,7 @@ func main() {
 	logVerbose("  - GET /api/vex")
 	logVerbose("  - GET /api/scan")
 	logVerbose("  - GET /api/health")
+	logVerbose("  - GET /api/metrics")
 	logVerbose("  - GET /api/openapi.yaml")
 
 	// Serve documentation files at /docs/
