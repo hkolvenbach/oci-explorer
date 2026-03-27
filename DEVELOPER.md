@@ -28,6 +28,8 @@ Click **Code > Codespaces > New codespace** on the repository page. The devconta
 | 8080 | Go backend (OCI Explorer) |
 | 5173 | Vite dev server (frontend hot reload) |
 | 2345 | Delve debugger (remote attach) |
+| 9000 | MinIO S3 API (local cache testing) |
+| 9001 | MinIO web console |
 
 ## Running Locally
 
@@ -59,6 +61,52 @@ make run
 ```
 
 This builds the Docker image (frontend + backend + Trivy) and runs it on port 8080.
+
+### With S3 cache (MinIO)
+
+To test the response cache locally, start MinIO via Docker Compose then run the app:
+
+```bash
+# Start MinIO (S3-compatible) + auto-create the cache bucket
+docker compose -f docker-compose.dev.yml up -d
+
+# Run the app with cache enabled, pointing at local MinIO
+AWS_ENDPOINT_URL_S3=http://localhost:9000 \
+AWS_ACCESS_KEY_ID=minioadmin \
+AWS_SECRET_ACCESS_KEY=minioadmin \
+AWS_REGION=us-east-1 \
+CACHE_S3_BUCKET=oci-cache \
+  go run . -v
+```
+
+Or run everything (app + MinIO) in Docker:
+
+```bash
+docker compose -f docker-compose.dev.yml --profile app up --build
+```
+
+**MinIO admin console:** http://localhost:9001 (login: `minioadmin` / `minioadmin`)
+
+Verify caching works:
+
+```bash
+# First request — cache MISS
+curl -sD - 'http://localhost:8080/api/inspect?image=alpine:latest' -o /dev/null | grep X-Cache
+# X-Cache: MISS
+
+# Second request — cache HIT
+curl -sD - 'http://localhost:8080/api/inspect?image=alpine:latest' -o /dev/null | grep X-Cache
+# X-Cache: HIT
+
+# Prometheus metrics
+curl -s http://localhost:8080/api/metrics | grep oci_cache
+```
+
+To stop MinIO:
+
+```bash
+docker compose -f docker-compose.dev.yml down
+```
 
 ## Debugging with VS Code
 
@@ -172,13 +220,17 @@ Browser ──→ Vite (dev) or Go embed (prod) ──→ Svelte 5 SPA
                                                    ▼
                                               /api/* routes
                                                    │
-                                    ┌──────────────┼──────────────┐
+                                         ┌─── cache/ (S3) ───┐
+                                         │   HIT → return     │
+                                         │   MISS ↓           │
+                                    ┌────┴─────────┼──────────┴──┐
                                     ▼              ▼              ▼
                               registry/       scanner/       docshandler/
                            (OCI client)    (Trivy subprocess)  (markdown → HTML)
 ```
 
 - **`main.go`** — HTTP server, route registration, CORS middleware, handlers
+- **`cache/`** — S3-compatible response cache with singleflight, gzip, Prometheus metrics
 - **`registry/`** — OCI registry client (inspect, referrers, SBOM, VEX, matching tags)
 - **`scanner/`** — Trivy subprocess wrapper, JSON parsing, severity grouping
 - **`docshandler/`** — Serves `/docs/` markdown files as HTML
