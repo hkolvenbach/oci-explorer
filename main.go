@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"os/exec"
 	"runtime"
 	"time"
@@ -40,6 +41,28 @@ var jsonLogs bool
 
 // cacheStore is the global response cache (nil when caching is disabled).
 var cacheStore *cache.Store
+
+// requestCounts tracks total API requests per operation since process start.
+var requestCounts = struct {
+	sync.Mutex
+	m map[string]uint64
+}{m: make(map[string]uint64)}
+
+func countRequest(operation string) {
+	requestCounts.Lock()
+	requestCounts.m[operation]++
+	requestCounts.Unlock()
+}
+
+func getRequestCounts() map[string]uint64 {
+	requestCounts.Lock()
+	defer requestCounts.Unlock()
+	cp := make(map[string]uint64, len(requestCounts.m))
+	for k, v := range requestCounts.m {
+		cp[k] = v
+	}
+	return cp
+}
 
 // Cache TTLs per endpoint type. All keys are SHA256 digest-based (immutable);
 // the tag-to-digest resolution (ResolveDigest) runs on every request and is never cached.
@@ -276,17 +299,21 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	_, trivyErr := exec.LookPath("trivy")
 
+	data := map[string]interface{}{
+		"status":         "healthy",
+		"platform":       fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
+		"version":        Version,
+		"trivyAvailable": trivyErr == nil,
+		"cacheEnabled":   cacheStore != nil,
+		"requests":       getRequestCounts(),
+	}
+
+	if cacheStore != nil {
+		data["cache"] = cache.Stats()
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, APIResponse{
-		Success: true,
-		Data: map[string]interface{}{
-			"status":         "healthy",
-			"platform":       fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
-			"version":        Version,
-			"trivyAvailable": trivyErr == nil,
-			"cacheEnabled":   cacheStore != nil,
-		},
-	})
+	writeJSON(w, APIResponse{Success: true, Data: data})
 }
 
 func handleInspect(w http.ResponseWriter, r *http.Request) {
@@ -297,6 +324,7 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	countRequest("inspect")
 	slog.Info("inspect", "image", imageRef)
 	slog.Debug("inspect", "image", imageRef, "remote_addr", r.RemoteAddr)
 
@@ -351,6 +379,7 @@ func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	countRequest("sbom")
 	slog.Info("sbom download", "repository", repo, "digest", digest)
 	slog.Debug("sbom download", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
@@ -405,6 +434,7 @@ func handleFetchVEX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	countRequest("vex")
 	slog.Info("vex fetch", "repository", repo, "digest", digest)
 	slog.Debug("vex fetch", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
@@ -451,6 +481,7 @@ func handleListTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	countRequest("tags")
 	logVerbose("Listing tags for repository: %s", repo)
 
 	ref, err := name.NewRepository(repo)
@@ -491,6 +522,7 @@ func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	countRequest("matching-tags")
 	slog.Info("matching-tags", "image", imageRef)
 	slog.Debug("matching-tags", "image", imageRef, "remote_addr", r.RemoteAddr)
 
@@ -515,6 +547,7 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	countRequest("scan")
 	slog.Info("scan", "image", imageRef)
 	slog.Debug("scan", "image", imageRef, "remote_addr", r.RemoteAddr)
 

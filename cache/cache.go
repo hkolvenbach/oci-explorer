@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	prometheusmodel "github.com/prometheus/client_model/go"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -45,6 +46,69 @@ var (
 		Help: "Total bytes stored in cache (uncompressed).",
 	}, []string{"endpoint"})
 )
+
+// EndpointStats holds cache statistics for a single endpoint.
+type EndpointStats struct {
+	Hits   uint64  `json:"hits"`
+	Misses uint64  `json:"misses"`
+	Errors uint64  `json:"errors"`
+	HitRate float64 `json:"hitRate"` // 0.0-1.0
+}
+
+// Stats returns cache hit/miss/error counts per endpoint, read from the Prometheus counters.
+func Stats() map[string]*EndpointStats {
+	result := make(map[string]*EndpointStats)
+
+	// Gather all metrics from the cacheRequests counter
+	ch := make(chan prometheus.Metric, 64)
+	go func() {
+		cacheRequests.Collect(ch)
+		close(ch)
+	}()
+
+	for m := range ch {
+		var pm prometheusmodel.Metric
+		if err := m.Write(&pm); err != nil {
+			continue
+		}
+		var endpoint, resultLabel string
+		for _, lp := range pm.GetLabel() {
+			switch lp.GetName() {
+			case "endpoint":
+				endpoint = lp.GetValue()
+			case "result":
+				resultLabel = lp.GetValue()
+			}
+		}
+		if endpoint == "" {
+			continue
+		}
+		stats, ok := result[endpoint]
+		if !ok {
+			stats = &EndpointStats{}
+			result[endpoint] = stats
+		}
+		val := uint64(pm.GetCounter().GetValue())
+		switch resultLabel {
+		case "hit":
+			stats.Hits = val
+		case "miss":
+			stats.Misses = val
+		case "error":
+			stats.Errors = val
+		}
+	}
+
+	// Calculate hit rates
+	for _, s := range result {
+		total := s.Hits + s.Misses
+		if total > 0 {
+			s.HitRate = float64(s.Hits) / float64(total)
+		}
+	}
+
+	return result
+}
 
 // endpointFromKey extracts the endpoint prefix from a cache key (e.g., "inspect/sha256:..." -> "inspect").
 func endpointFromKey(key string) string {
