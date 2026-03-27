@@ -62,32 +62,24 @@ make run
 
 This builds the Docker image (frontend + backend + Trivy) and runs it on port 8080.
 
-### With S3 cache (MinIO)
+### With S3 cache (Docker Compose)
 
-To test the response cache locally, start MinIO via Docker Compose then run the app:
-
-```bash
-# Start MinIO (S3-compatible) + auto-create the cache bucket
-docker compose -f docker-compose.dev.yml up -d
-
-# Run the app with cache enabled, pointing at local MinIO
-AWS_ENDPOINT_URL_S3=http://localhost:9000 \
-AWS_ACCESS_KEY_ID=minioadmin \
-AWS_SECRET_ACCESS_KEY=minioadmin \
-AWS_REGION=us-east-1 \
-CACHE_S3_BUCKET=oci-cache \
-  go run . -v
-```
-
-Or run everything (app + MinIO) in Docker:
+`docker-compose.dev.yml` runs the full stack: app (built from Dockerfile with Trivy) + MinIO (S3-compatible cache) + automatic bucket creation.
 
 ```bash
-docker compose -f docker-compose.dev.yml --profile app up --build
+# Start everything (builds the app image on first run)
+docker compose -f docker-compose.dev.yml up --build
 ```
 
-**MinIO admin console:** http://localhost:9001 (login: `minioadmin` / `minioadmin`)
+| Service | URL | Description |
+|---------|-----|-------------|
+| App | http://localhost:8080 | OCI Explorer with caching enabled |
+| MinIO API | http://localhost:9000 | S3-compatible endpoint |
+| MinIO Console | http://localhost:9001 | Web UI (login: `minioadmin` / `minioadmin`) |
+| Delve | localhost:2345 | Remote debugger attach port |
+| Metrics | http://localhost:8080/api/metrics | Prometheus metrics |
 
-Verify caching works:
+Verify caching:
 
 ```bash
 # First request — cache MISS
@@ -98,14 +90,30 @@ curl -sD - 'http://localhost:8080/api/inspect?image=alpine:latest' -o /dev/null 
 curl -sD - 'http://localhost:8080/api/inspect?image=alpine:latest' -o /dev/null | grep X-Cache
 # X-Cache: HIT
 
-# Prometheus metrics
+# Prometheus cache metrics
 curl -s http://localhost:8080/api/metrics | grep oci_cache
 ```
 
-To stop MinIO:
+To stop and clean up:
 
 ```bash
-docker compose -f docker-compose.dev.yml down
+docker compose -f docker-compose.dev.yml down       # stop, keep MinIO data
+docker compose -f docker-compose.dev.yml down -v     # stop + delete MinIO data
+```
+
+**Without Docker** — if you prefer `go run` with only MinIO in Docker:
+
+```bash
+# Start MinIO only
+docker compose -f docker-compose.dev.yml up minio minio-setup -d
+
+# Run the app natively
+AWS_ENDPOINT_URL_S3=http://localhost:9000 \
+AWS_ACCESS_KEY_ID=minioadmin \
+AWS_SECRET_ACCESS_KEY=minioadmin \
+AWS_REGION=us-east-1 \
+CACHE_S3_BUCKET=oci-cache \
+  go run . -v
 ```
 
 ## Debugging with VS Code

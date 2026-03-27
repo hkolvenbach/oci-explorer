@@ -1,16 +1,49 @@
-## Local development stack with MinIO (S3-compatible) for cache testing.
+## Local development stack: app + MinIO (S3-compatible cache) + Trivy.
 ##
-## Usage:
-##   docker compose -f docker-compose.dev.yml up -d    # start MinIO
-##   go run . --verbose                                 # start the app (reads .env automatically via the shell env below)
+## Quick start:
+##   docker compose -f docker-compose.dev.yml up --build
 ##
-## Or run everything in Docker:
-##   docker compose -f docker-compose.dev.yml --profile app up --build
+## Services:
+##   app          http://localhost:8080       OCI Explorer (built from Dockerfile)
+##   minio        http://localhost:9000       S3-compatible API
+##   minio-admin  http://localhost:9001       MinIO web console (minioadmin / minioadmin)
 ##
-## MinIO console: http://localhost:9001 (minioadmin / minioadmin)
-## Prometheus metrics: http://localhost:8080/api/metrics
+## Endpoints:
+##   /api/health     Health check (cacheEnabled: true)
+##   /api/metrics    Prometheus metrics (oci_cache_requests_total, etc.)
+##   /api/inspect    Image inspection (cached)
+##   /api/scan       Vulnerability scan (cached, ?force=1 to bypass)
+##
+## Delve debugger:
+##   Port 2345 is exposed for remote attach debugging.
+##   To use it, build with debug symbols and start via Delve instead of the
+##   default entrypoint (see DEVELOPER.md for step-by-step instructions).
+##
+## Tear down:
+##   docker compose -f docker-compose.dev.yml down            # stop, keep data
+##   docker compose -f docker-compose.dev.yml down -v         # stop + delete MinIO data
 
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: dev-docker-compose
+        TRIVY_VERSION: "0.69.2"
+    ports:
+      - "8080:8080"   # HTTP server
+      - "2345:2345"   # Delve debugger (remote attach)
+    environment:
+      CACHE_S3_BUCKET: oci-cache
+      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
+    depends_on:
+      minio-setup:
+        condition: service_completed_successfully
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -28,7 +61,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # Create the cache bucket on first startup
+  # One-shot init container: creates the cache bucket if it doesn't exist
   minio-setup:
     image: minio/mc:latest
     depends_on:
@@ -40,22 +73,6 @@ services:
       mc mb --ignore-existing local/oci-cache &&
       echo 'Bucket oci-cache ready'
       "
-
-  # Optional: run the full app in Docker (use --profile app)
-  app:
-    profiles: ["app"]
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      CACHE_S3_BUCKET: oci-cache
-      AWS_ENDPOINT_URL_S3: http://minio:9000
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-      AWS_REGION: us-east-1
-    depends_on:
-      minio-setup:
-        condition: service_completed_successfully
 
 volumes:
   minio-data:
