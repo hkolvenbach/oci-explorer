@@ -75,7 +75,12 @@ func New(ctx context.Context, bucket string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cache: load AWS config: %w", err)
 	}
-	client := s3.NewFromConfig(cfg)
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		// Use path-style addressing (bucket in path, not subdomain).
+		// Required for MinIO and other S3-compatible backends that don't
+		// support virtual-hosted-style URLs. Tigris and AWS S3 work with both.
+		o.UsePathStyle = true
+	})
 	return &Store{client: client, bucket: bucket}, nil
 }
 
