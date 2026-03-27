@@ -26,9 +26,52 @@ import (
 // verbose controls whether verbose logging is enabled
 var verbose bool
 
+// defaultKeychain is the authentication keychain used for all registry operations.
+// It defaults to authn.DefaultKeychain (reads ~/.docker/config.json) and can be
+// extended with ConfigureDockerHubAuth to add Docker Hub credentials.
+var defaultKeychain authn.Keychain = authn.DefaultKeychain
+
 // SetVerbose enables or disables verbose logging
 func SetVerbose(v bool) {
 	verbose = v
+}
+
+// ConfigureDockerHubAuth adds Docker Hub authentication using a username and
+// access token. This raises the rate limit from 100 pulls/6h (anonymous) to
+// 200 pulls/6h (free) or unlimited (paid). The credentials are chained with
+// the default keychain so other registries still work via ~/.docker/config.json.
+func ConfigureDockerHubAuth(username, token string) {
+	dockerHubAuth := authn.FromConfig(authn.AuthConfig{
+		Username: username,
+		Password: token,
+	})
+	defaultKeychain = authn.NewMultiKeychain(
+		&staticKeychain{
+			host: "index.docker.io",
+			auth: dockerHubAuth,
+		},
+		authn.DefaultKeychain,
+	)
+	logVerbose("Docker Hub authentication configured for user %q", username)
+}
+
+// staticKeychain provides fixed credentials for a single registry host.
+type staticKeychain struct {
+	host string
+	auth authn.Authenticator
+}
+
+func (k *staticKeychain) Resolve(res authn.Resource) (authn.Authenticator, error) {
+	if res.RegistryStr() == k.host {
+		return k.auth, nil
+	}
+	return authn.Anonymous, nil
+}
+
+// Keychain returns the configured authentication keychain for use by callers
+// that interact with registries directly (outside of Client methods).
+func Keychain() authn.Keychain {
+	return defaultKeychain
 }
 
 // logVerbose prints a message only if verbose mode is enabled
@@ -149,10 +192,40 @@ type Client struct {
 
 // NewClient creates a new registry client
 func NewClient() *Client {
-	logVerbose("Creating new registry client with default keychain")
+	logVerbose("Creating new registry client")
 	return &Client{
-		keychain: authn.DefaultKeychain,
+		keychain: defaultKeychain,
 	}
+}
+
+// ResolveDigest resolves an image reference to its content digest.
+// For digest references (image@sha256:...), returns the digest without any HTTP call.
+// For tag references, makes a single HEAD request (falling back to GET if HEAD fails).
+func ResolveDigest(imageRef string) (string, error) {
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return "", fmt.Errorf("invalid image reference: %w", err)
+	}
+	// Digest references: no HTTP call needed
+	if d, ok := ref.(name.Digest); ok {
+		logVerbose("ResolveDigest: digest reference, no HTTP call needed: %s", d.DigestStr())
+		return d.DigestStr(), nil
+	}
+	// Tag references: HEAD to resolve
+	logVerbose("ResolveDigest: resolving tag %s via HEAD request", imageRef)
+	desc, err := remote.Head(ref, remote.WithAuthFromKeychain(defaultKeychain))
+	if err != nil {
+		// Fallback: some registries don't support HEAD reliably
+		logVerbose("ResolveDigest: HEAD failed (%v), falling back to GET", err)
+		descFull, err2 := remote.Get(ref, remote.WithAuthFromKeychain(defaultKeychain))
+		if err2 != nil {
+			return "", fmt.Errorf("failed to resolve digest: %w", err)
+		}
+		logVerbose("ResolveDigest: resolved via GET to %s", descFull.Digest.String())
+		return descFull.Digest.String(), nil
+	}
+	logVerbose("ResolveDigest: resolved via HEAD to %s", desc.Digest.String())
+	return desc.Digest.String(), nil
 }
 
 // InspectImage fetches and parses image information from a registry

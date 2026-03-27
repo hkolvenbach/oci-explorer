@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -12,11 +13,12 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"time"
 
-	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/gorilla/mux"
+	"github.com/hkolvenbach/oci-explorer/cache"
 	"github.com/hkolvenbach/oci-explorer/docshandler"
 	"github.com/hkolvenbach/oci-explorer/registry"
 	"github.com/hkolvenbach/oci-explorer/scanner"
@@ -35,11 +37,23 @@ var Version = "dev"
 var verbose bool
 var jsonLogs bool
 
+// cacheStore is the global response cache (nil when caching is disabled).
+var cacheStore *cache.Store
+
+// Cache TTLs per endpoint type.
+const (
+	inspectCacheTTL = 7 * 24 * time.Hour  // 7 days -- immutable for a given digest
+	scanCacheTTL    = 24 * time.Hour       // 24 hours -- Trivy DB updates daily
+	sbomCacheTTL    = 30 * 24 * time.Hour  // 30 days -- content-addressed, immutable
+	vexCacheTTL     = 30 * 24 * time.Hour  // 30 days -- content-addressed, immutable
+)
+
 // APIResponse is the standard API response format
 type APIResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Success  bool        `json:"success"`
+	Data     interface{} `json:"data,omitempty"`
+	Error    string      `json:"error,omitempty"`
+	CachedAt string      `json:"cachedAt,omitempty"`
 }
 
 // logVerbose logs at debug level (visible only in verbose mode).
@@ -117,6 +131,24 @@ func main() {
 	registry.SetVerbose(verbose)
 	scanner.SetVerbose(verbose)
 
+	// Configure Docker Hub authentication if credentials are provided.
+	// Raises rate limit from 100 pulls/6h (anonymous) to 200/6h (free) or unlimited (paid).
+	if token := os.Getenv("DOCKER_HUB_TOKEN"); token != "" {
+		user := os.Getenv("DOCKER_HUB_USER")
+		registry.ConfigureDockerHubAuth(user, token)
+		slog.Info("Docker Hub authentication configured", "user", user)
+	}
+
+	// Initialize S3-backed response cache if CACHE_S3_BUCKET is set
+	if bucket := os.Getenv("CACHE_S3_BUCKET"); bucket != "" {
+		var err error
+		cacheStore, err = cache.New(context.Background(), bucket)
+		if err != nil {
+			log.Fatalf("Failed to initialize cache: %v", err)
+		}
+		slog.Info("response cache enabled", "bucket", bucket)
+	}
+
 	// Create docs handler (embed.FS satisfies fs.FS)
 	docsHandler := docshandler.New(docsFS, verbose)
 
@@ -180,6 +212,9 @@ func main() {
 	if verbose {
 		fmt.Println("│  Mode:     verbose                              │")
 	}
+	if cacheStore != nil {
+		fmt.Printf("│  Cache:    %-37s│\n", os.Getenv("CACHE_S3_BUCKET"))
+	}
 	fmt.Println("│  Press Ctrl+C to stop                           │")
 	fmt.Println("└─────────────────────────────────────────────────┘")
 
@@ -217,10 +252,10 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 			"platform":       fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH),
 			"version":        Version,
 			"trivyAvailable": trivyErr == nil,
+			"cacheEnabled":   cacheStore != nil,
 		},
 	})
 }
-
 
 func handleInspect(w http.ResponseWriter, r *http.Request) {
 	imageRef := r.URL.Query().Get("image")
@@ -233,6 +268,34 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 	slog.Info("inspect", "image", imageRef)
 	slog.Debug("inspect", "image", imageRef, "remote_addr", r.RemoteAddr)
 
+	if cacheStore != nil {
+		digest, err := registry.ResolveDigest(imageRef)
+		if err == nil {
+			result, err := cacheStore.GetOrCompute(r.Context(), "inspect/"+digest, inspectCacheTTL, func() ([]byte, error) {
+				client := registry.NewClient()
+				info, err := client.InspectImage(imageRef)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(APIResponse{Success: true, Data: info})
+			})
+			if err == nil {
+				w.Header().Set("Content-Type", "application/json")
+				if result.FromCache {
+					w.Header().Set("X-Cache", "HIT")
+				} else {
+					w.Header().Set("X-Cache", "MISS")
+				}
+				writeBytes(w, result.Data)
+				return
+			}
+			slog.Warn("cache path failed, falling through", "image", imageRef, "error", err)
+		} else {
+			slog.Warn("digest resolution failed, falling through", "image", imageRef, "error", err)
+		}
+	}
+
+	// Uncached path (cache disabled or cache error)
 	client := registry.NewClient()
 	imageInfo, err := client.InspectImage(imageRef)
 	if err != nil {
@@ -259,6 +322,31 @@ func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
 	slog.Info("sbom download", "repository", repo, "digest", digest)
 	slog.Debug("sbom download", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
+	if cacheStore != nil {
+		result, err := cacheStore.GetOrCompute(r.Context(), "sbom/"+digest, sbomCacheTTL, func() ([]byte, error) {
+			client := registry.NewClient()
+			sbomData, _, err := client.FetchSBOMContent(repo, digest)
+			if err != nil {
+				return nil, err
+			}
+			return sbomData, nil
+		})
+		if err == nil {
+			contentType := "application/json"
+			w.Header().Set("Content-Type", contentType)
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"sbom-%s.json\"", digest[7:19]))
+			if result.FromCache {
+				w.Header().Set("X-Cache", "HIT")
+			} else {
+				w.Header().Set("X-Cache", "MISS")
+			}
+			writeBytes(w, result.Data)
+			return
+		}
+		slog.Warn("cache path failed, falling through", "digest", digest, "error", err)
+	}
+
+	// Uncached path
 	client := registry.NewClient()
 	sbomData, contentType, err := client.FetchSBOMContent(repo, digest)
 	if err != nil {
@@ -267,7 +355,6 @@ func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set appropriate content type and disposition for download
 	if contentType == "" {
 		contentType = "application/json"
 	}
@@ -289,6 +376,29 @@ func handleFetchVEX(w http.ResponseWriter, r *http.Request) {
 	slog.Info("vex fetch", "repository", repo, "digest", digest)
 	slog.Debug("vex fetch", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
+	if cacheStore != nil {
+		result, err := cacheStore.GetOrCompute(r.Context(), "vex/"+digest, vexCacheTTL, func() ([]byte, error) {
+			client := registry.NewClient()
+			vexDoc, err := client.FetchVEXContent(repo, digest)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(APIResponse{Success: true, Data: vexDoc})
+		})
+		if err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			if result.FromCache {
+				w.Header().Set("X-Cache", "HIT")
+			} else {
+				w.Header().Set("X-Cache", "MISS")
+			}
+			writeBytes(w, result.Data)
+			return
+		}
+		slog.Warn("cache path failed, falling through", "digest", digest, "error", err)
+	}
+
+	// Uncached path
 	client := registry.NewClient()
 	vexDoc, err := client.FetchVEXContent(repo, digest)
 	if err != nil {
@@ -319,7 +429,7 @@ func handleListTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logVerbose("Fetching tags from registry...")
-	tags, err := remote.List(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	tags, err := remote.List(ref, remote.WithAuthFromKeychain(registry.Keychain()))
 	if err != nil {
 		logVerbose("Failed to list tags: %v", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -334,12 +444,13 @@ func handleListTags(w http.ResponseWriter, r *http.Request) {
 // handleMatchingTags returns tags that share the same digest as the queried image.
 //
 // Test examples:
-//   Docker Hub (returns matching tags):
-//     curl 'http://localhost:8080/api/matching-tags?image=alpine:latest'
-//   GCR / Artifact Registry (single-request lookup):
-//     curl 'http://localhost:8080/api/matching-tags?image=gcr.io/google-containers/pause:3.2'
-//   GHCR (unsupported — returns note):
-//     curl 'http://localhost:8080/api/matching-tags?image=ghcr.io/hkolvenbach/oci-explorer:0.2.2'
+//
+//	Docker Hub (returns matching tags):
+//	  curl 'http://localhost:8080/api/matching-tags?image=alpine:latest'
+//	GCR / Artifact Registry (single-request lookup):
+//	  curl 'http://localhost:8080/api/matching-tags?image=gcr.io/google-containers/pause:3.2'
+//	GHCR (unsupported — returns note):
+//	  curl 'http://localhost:8080/api/matching-tags?image=ghcr.io/hkolvenbach/oci-explorer:0.2.2'
 func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 	imageRef := r.URL.Query().Get("image")
 	if imageRef == "" {
@@ -375,15 +486,61 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 	slog.Info("scan", "image", imageRef)
 	slog.Debug("scan", "image", imageRef, "remote_addr", r.RemoteAddr)
 
-	result, err := scanner.ScanImage(r.Context(), imageRef)
+	force := r.URL.Query().Get("force") == "1"
+
+	if cacheStore != nil && !force {
+		digest, err := registry.ResolveDigest(imageRef)
+		if err == nil {
+			result, err := cacheStore.GetOrCompute(r.Context(), "scan/"+digest, scanCacheTTL, func() ([]byte, error) {
+				scanResult, err := scanner.ScanImage(r.Context(), imageRef)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(APIResponse{Success: true, Data: scanResult})
+			})
+			if err == nil {
+				w.Header().Set("Content-Type", "application/json")
+				if result.FromCache {
+					w.Header().Set("X-Cache", "HIT")
+				} else {
+					w.Header().Set("X-Cache", "MISS")
+				}
+				// Inject cachedAt for the frontend to show staleness
+				if !result.CachedAt.IsZero() {
+					w.Header().Set("X-Cached-At", result.CachedAt.UTC().Format(time.RFC3339))
+				}
+				writeBytes(w, result.Data)
+				return
+			}
+			slog.Warn("cache path failed, falling through", "image", imageRef, "error", err)
+		} else {
+			slog.Warn("digest resolution failed, falling through", "image", imageRef, "error", err)
+		}
+	}
+
+	// Force refresh or uncached path -- also store in cache if available
+	scanResult, err := scanner.ScanImage(r.Context(), imageRef)
 	if err != nil {
 		slog.Error("scan failed", "image", imageRef, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	logVerbose("Scan complete for %s: %d vulnerabilities found", imageRef, result.TotalCount)
-	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, APIResponse{Success: true, Data: result})
-}
+	// On force refresh with cache enabled, store the fresh result
+	if cacheStore != nil && force {
+		if digest, err := registry.ResolveDigest(imageRef); err == nil {
+			data, err := json.Marshal(APIResponse{Success: true, Data: scanResult})
+			if err == nil {
+				go func() {
+					if setErr := cacheStore.Set(context.Background(), "scan/"+digest, data, scanCacheTTL); setErr != nil {
+						slog.Warn("cache set failed after force rescan", "image", imageRef, "error", setErr)
+					}
+				}()
+			}
+		}
+	}
 
+	logVerbose("Scan complete for %s: %d vulnerabilities found", imageRef, scanResult.TotalCount)
+	w.Header().Set("Content-Type", "application/json")
+	writeJSON(w, APIResponse{Success: true, Data: scanResult})
+}

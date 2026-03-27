@@ -1,4 +1,4 @@
-import type { APIResponse, ImageInfo, HealthData, VEXDocument, MatchingTagsResult, ScanResult } from './types';
+import type { APIResponse, ImageInfo, HealthData, VEXDocument, MatchingTagsResult, ScanResult, ScanResponse } from './types';
 
 async function fetchJSON<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -42,6 +42,15 @@ export async function fetchHealth(): Promise<HealthData> {
   return fetchJSON<HealthData>('/api/health');
 }
 
-export async function scanImage(imageRef: string): Promise<ScanResult> {
-  return fetchJSON<ScanResult>(`/api/scan?image=${encodeURIComponent(imageRef)}`);
+export async function scanImage(imageRef: string, force = false): Promise<ScanResponse> {
+  const url = `/api/scan?image=${encodeURIComponent(imageRef)}${force ? '&force=1' : ''}`;
+  const response = await fetch(url);
+  const json: APIResponse<ScanResult> = await response.json();
+  if (!json.success) {
+    throw new Error(json.error || 'Scan failed');
+  }
+  return {
+    result: json.data as ScanResult,
+    cachedAt: response.headers.get('X-Cached-At') || undefined,
+  };
 }

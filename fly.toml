@@ -12,6 +12,7 @@ primary_region = 'fra'
 
 [env]
   LOG_FORMAT = 'json'
+  CACHE_S3_BUCKET = 'oci-explorer-cache'
 
 [http_service]
   internal_port = 8080
