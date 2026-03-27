@@ -95,6 +95,7 @@ func main() {
 	flag.BoolVar(&verbose, "v", false, "Enable verbose logging (shorthand)")
 	flag.BoolVar(&jsonLogs, "json-logs", false, "Output logs in JSON format (for structured log shipping)")
 	port := flag.String("port", "", "HTTP server port (default: 8080, or PORT env var)")
+	metricsPortFlag := flag.String("metrics-port", "", "Serve Prometheus metrics on a separate port (env: METRICS_PORT). If unset, metrics are served on the main port at /api/metrics.")
 	flag.Parse()
 
 	// Env var fallback for JSON logs
@@ -167,8 +168,28 @@ func main() {
 	api.HandleFunc("/vex", handleFetchVEX).Methods("GET", "OPTIONS")
 	api.HandleFunc("/scan", handleScanImage).Methods("GET", "OPTIONS")
 	api.HandleFunc("/health", handleHealth).Methods("GET")
-	api.Handle("/metrics", promhttp.Handler()).Methods("GET")
 	api.HandleFunc("/openapi.yaml", docsHandler.ServeOpenAPISpec).Methods("GET")
+
+	// Metrics: serve on a separate port to keep metrics off the public-facing
+	// port (e.g., on Fly.io). If unset, metrics are served on the main port
+	// at /api/metrics for convenient local development.
+	metricsPort := *metricsPortFlag
+	if metricsPort == "" {
+		metricsPort = os.Getenv("METRICS_PORT")
+	}
+	if metricsPort != "" {
+		go func() {
+			mux := http.NewServeMux()
+			mux.Handle("/metrics", promhttp.Handler())
+			slog.Info("metrics server starting", "port", metricsPort)
+			if err := http.ListenAndServe(":"+metricsPort, mux); err != nil {
+				slog.Error("metrics server failed", "error", err)
+			}
+		}()
+	} else {
+		api.Handle("/metrics", promhttp.Handler()).Methods("GET")
+	}
+
 	logVerbose("  - GET /api/inspect")
 	logVerbose("  - GET /api/tags")
 	logVerbose("  - GET /api/matching-tags")
@@ -176,8 +197,12 @@ func main() {
 	logVerbose("  - GET /api/vex")
 	logVerbose("  - GET /api/scan")
 	logVerbose("  - GET /api/health")
-	logVerbose("  - GET /api/metrics")
 	logVerbose("  - GET /api/openapi.yaml")
+	if metricsPort != "" {
+		logVerbose("  - GET :%s/metrics (separate port)", metricsPort)
+	} else {
+		logVerbose("  - GET /api/metrics")
+	}
 
 	// Serve documentation files at /docs/
 	logVerbose("Setting up documentation file server...")
@@ -218,6 +243,9 @@ func main() {
 	}
 	if cacheStore != nil {
 		fmt.Printf("│  Cache:    %-37s│\n", os.Getenv("CACHE_S3_BUCKET"))
+	}
+	if metricsPort != "" {
+		fmt.Printf("│  Metrics:  http://localhost:%-20s│\n", metricsPort+"/metrics")
 	}
 	fmt.Println("│  Press Ctrl+C to stop                           │")
 	fmt.Println("└─────────────────────────────────────────────────┘")

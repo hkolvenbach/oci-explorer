@@ -94,6 +94,14 @@ curl -sD - 'http://localhost:8080/api/inspect?image=alpine:latest' -o /dev/null 
 curl -s http://localhost:8080/api/metrics | grep oci_cache
 ```
 
+Run the integration tests (requires the stack to be running):
+
+```bash
+./scripts/test-cache.sh
+```
+
+This tests cache MISS/HIT for inspect and scan, digest-based lookups, `?force=1` bypass, and Prometheus metrics.
+
 To stop and clean up:
 
 ```bash

@@ -102,6 +102,7 @@ All configuration is via environment variables in `fly.toml` or Fly secrets.
 | `CACHE_S3_BUCKET` | No | _(empty = cache disabled)_ | S3 bucket name. Set this to enable caching. |
 | `LOG_FORMAT` | No | `text` | Set to `json` for structured log output. |
 | `PORT` | No | `8080` | HTTP server port. |
+| `METRICS_PORT` | No | _(empty = serve on main port)_ | Serve Prometheus metrics on a separate port. Set on Fly.io to keep metrics off the public endpoint. |
 
 ### Secrets (set via `fly secrets set`)
 
