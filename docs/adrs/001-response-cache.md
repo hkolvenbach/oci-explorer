@@ -36,7 +36,7 @@ Tags are mutable (`latest` can point to different digests over time). To ensure 
 
 | Endpoint | Key prefix | TTL | Rationale |
 |----------|-----------|-----|-----------|
-| `/api/inspect` | `inspect/` | 7 days | Immutable for a given digest (same manifest, config, layers) |
+| `/api/inspect` | `inspect/` | 30 days | Immutable for a given digest (same manifest, config, layers) |
 | `/api/scan` | `scan/` | 24 hours | Trivy vulnerability DB updates daily; new CVEs may apply |
 | `/api/sbom` | `sbom/` | 30 days | Content-addressed, truly immutable |
 | `/api/vex` | `vex/` | 30 days | Content-addressed, truly immutable |

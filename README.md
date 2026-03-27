@@ -39,6 +39,7 @@ Visualize OCI container image structures including layers, manifests, referrers,
 - **Copyable Digests** - Click any SHA-256 digest in the UI to copy the full value to the clipboard.
 - **Mobile Responsive** - Adaptive layout with stacked columns on small screens and side-by-side panels on desktop.
 - **Authentication** - Uses Docker credential helpers (`~/.docker/config.json`) for private registries. Supports Docker Hub, GHCR, GCR, ECR, and any registry with a configured credential helper.
+- **Response Cache** - Optional S3-compatible cache (Tigris, AWS S3, MinIO) for hosted deployments. Caches responses by SHA256 digest to reduce registry bandwidth and avoid Docker Hub rate limits. Previously scanned images load instantly. See [HOSTED.md](HOSTED.md) for setup.
 
 ## Quick Start
 

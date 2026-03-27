@@ -127,7 +127,7 @@ A per-machine `singleflight.Group` prevents thundering herd: if 10 users request
 
 | Endpoint | S3 key prefix | TTL | Rationale |
 |----------|--------------|-----|-----------|
-| `/api/inspect` | `inspect/` | 7 days | Image manifests and configs are immutable for a given digest |
+| `/api/inspect` | `inspect/` | 30 days | Image manifests and configs are immutable for a given digest |
 | `/api/scan` | `scan/` | 24 hours | Trivy vulnerability DB updates daily |
 | `/api/sbom` | `sbom/` | 30 days | Content-addressed, truly immutable |
 | `/api/vex` | `vex/` | 30 days | Content-addressed, truly immutable |
@@ -186,7 +186,7 @@ Example `lifecycle.json`:
 ```json
 {
   "Rules": [
-    {"ID": "expire-inspect", "Filter": {"Prefix": "inspect/"}, "Status": "Enabled", "Expiration": {"Days": 7}},
+    {"ID": "expire-inspect", "Filter": {"Prefix": "inspect/"}, "Status": "Enabled", "Expiration": {"Days": 30}},
     {"ID": "expire-scan", "Filter": {"Prefix": "scan/"}, "Status": "Enabled", "Expiration": {"Days": 1}},
     {"ID": "expire-sbom", "Filter": {"Prefix": "sbom/"}, "Status": "Enabled", "Expiration": {"Days": 30}},
     {"ID": "expire-vex", "Filter": {"Prefix": "vex/"}, "Status": "Enabled", "Expiration": {"Days": 30}}
@@ -210,12 +210,61 @@ Trivy downloads its vulnerability database (~30MB) on the first scan after a mac
 
 ## Monitoring
 
+### Health endpoint
+
+The health endpoint includes request counts and cache hit/miss stats:
+
+```bash
+curl -s https://oci-explorer.fly.dev/api/health | jq .
+```
+
+Example response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "healthy",
+    "cacheEnabled": true,
+    "requests": {
+      "inspect": 142,
+      "scan": 23,
+      "sbom": 5,
+      "tags": 8
+    },
+    "cache": {
+      "inspect": {"hits": 130, "misses": 12, "errors": 0, "hitRate": 0.915},
+      "scan": {"hits": 19, "misses": 4, "errors": 0, "hitRate": 0.826}
+    }
+  }
+}
+```
+
+### Prometheus metrics
+
+Metrics are served on a separate port (`METRICS_PORT=9090`) to keep them off the public endpoint. Access via `fly proxy`:
+
+```bash
+# Forward the metrics port locally
+fly proxy 9090:9090 &
+
+# Query metrics
+curl -s http://localhost:9090/metrics | grep oci_cache
+```
+
+Available metrics:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `oci_cache_requests_total` | counter | `endpoint`, `result` | Cache requests (hit/miss/error per endpoint) |
+| `oci_cache_latency_seconds` | histogram | `endpoint`, `operation` | Cache get and compute latency |
+| `oci_cache_bytes_total` | counter | `endpoint` | Bytes stored (uncompressed) |
+
+### Other commands
+
 ```bash
 # Live logs
 fly logs
-
-# Check health
-curl -s https://oci-explorer.fly.dev/api/health | jq .
 
 # List cached objects (Tigris uses S3 API)
 aws s3 ls s3://oci-explorer-cache/ --recursive \
