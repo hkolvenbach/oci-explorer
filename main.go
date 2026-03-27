@@ -519,6 +519,28 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("scan", "image", imageRef, "remote_addr", r.RemoteAddr)
 
 	force := r.URL.Query().Get("force") == "1"
+	peek := r.URL.Query().Get("peek") == "1"
+
+	// Peek mode: check cache only, return 404 on miss (never triggers Trivy).
+	// Used by the frontend to instantly show cached results after inspect.
+	if peek && cacheStore != nil {
+		digest, err := registry.ResolveDigest(imageRef)
+		if err == nil {
+			data, cachedAt, err := cacheStore.Get(r.Context(), "scan/"+digest)
+			if err == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-Cache", "HIT")
+				if !cachedAt.IsZero() {
+					w.Header().Set("X-Cached-At", cachedAt.UTC().Format(time.RFC3339))
+				}
+				writeBytes(w, data)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+		writeJSON(w, APIResponse{Success: false, Error: "no cached scan results"})
+		return
+	}
 
 	if cacheStore != nil && !force {
 		digest, err := registry.ResolveDigest(imageRef)

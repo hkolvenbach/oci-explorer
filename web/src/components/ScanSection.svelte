@@ -9,9 +9,24 @@
   let scanResult = $state<ScanResult | null>(null);
   let scanCachedAt = $state<string | undefined>(undefined);
   let isScanning = $state(false);
+  let isPeeking = $state(true); // true while checking for cached results
   let scanError = $state('');
   let scanStep = $state('');
   let globalStatusFilter = $state<'all' | 'fixable' | 'nofix' | 'vexed'>('all');
+
+  // On mount, check if cached scan results exist (non-blocking, never triggers Trivy)
+  $effect(() => {
+    const imageRef = data.repository + (data.tag ? ':' + data.tag : '@' + data.digest);
+    isPeeking = true;
+    api.peekScan(imageRef).then((cached) => {
+      if (cached && !scanResult) {
+        scanResult = cached.result;
+        scanCachedAt = cached.cachedAt;
+      }
+    }).finally(() => {
+      isPeeking = false;
+    });
+  });
 
   // Format "X hours ago" from an RFC3339 timestamp
   function formatTimeAgo(isoTimestamp: string): string {
@@ -156,6 +171,8 @@
         <span class="text-xs text-yellow-400">Trivy not available</span>
       {:else if isScanning}
         <div class="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"></div>
+      {:else if isPeeking}
+        <!-- brief loading while checking cache, prevents Scan button flash -->
       {:else if scanResult}
         <div class="flex items-center gap-2">
           {#if scanCachedAt}
