@@ -277,8 +277,29 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 		logVerbose("Unknown media type: %s", desc.MediaType)
 	}
 
-	// Fetch referrers - check the index digest and all platform manifest digests in parallel
+	// Fetch referrers and attach them to the info struct
+	c.PopulateReferrers(info)
+
+	// Only show the tag that was requested, not all tags in the repository
+	// (fetching all tags is expensive and usually not what users want)
+	logVerbose("Using requested tag: %s", info.Tag)
+
+	logVerbose("Image inspection complete")
+	return info, nil
+}
+
+// PopulateReferrers fetches all referrers (OCI 1.1 artifacts, cosign tags) for
+// the image described by info and sets info.Referrers. It can be called
+// independently of InspectImage to refresh referrers without re-fetching the
+// manifest, config, and layers.
+func (c *Client) PopulateReferrers(info *ImageInfo) {
 	logVerbose("Fetching referrers (OCI 1.1 artifacts)...")
+
+	ref, err := name.ParseReference(info.Repository + "@" + info.Digest)
+	if err != nil {
+		logVerbose("Failed to parse reference for referrers: %v", err)
+		return
+	}
 
 	var (
 		referrersMu     sync.Mutex
@@ -286,7 +307,6 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 		existingDigests = make(map[string]bool)
 	)
 
-	// Helper function to safely add referrers
 	addReferrers := func(newReferrers []Referrer) {
 		referrersMu.Lock()
 		defer referrersMu.Unlock()
@@ -298,7 +318,6 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 		}
 	}
 
-	// Helper function to safely add a single referrer
 	addReferrer := func(r Referrer) {
 		referrersMu.Lock()
 		defer referrersMu.Unlock()
@@ -312,8 +331,8 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 
 	// Fetch referrers for the main digest (index for multi-platform images) in parallel
 	g.Go(func() error {
-		indexReferrers, _ := c.fetchReferrers(ref, desc.Digest.String())
-		logVerbose("Found %d referrers for index digest %s", len(indexReferrers), truncateDigest(desc.Digest.String()))
+		indexReferrers, _ := c.fetchReferrers(ref, info.Digest)
+		logVerbose("Found %d referrers for index digest %s", len(indexReferrers), truncateDigest(info.Digest))
 		addReferrers(indexReferrers)
 		return nil
 	})
@@ -342,19 +361,6 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 
 			// Check for Docker BuildKit attestation manifests (used by Kairos and other images)
 			// These have annotation vnd.docker.reference.type: attestation-manifest
-			//
-			// Mapping between com.docker.official-images.bashbrew.arch and platform tags:
-			//   - "amd64"     -> "linux/amd64"
-			//   - "arm32v6"   -> "linux/arm/v6"
-			//   - "arm32v7"   -> "linux/arm/v7"
-			//   - "arm64v8"   -> "linux/arm64/v8"
-			//   - "i386"      -> "linux/386"
-			//   - "ppc64le"   -> "linux/ppc64le"
-			//   - "riscv64"   -> "linux/riscv64"
-			//   - "s390x"     -> "linux/s390x"
-			//
-			// The attestation manifest should have the same com.docker.official-images.bashbrew.arch
-			// annotation as its corresponding platform manifest.
 			if refType, ok := m.Annotations["vnd.docker.reference.type"]; ok && refType == "attestation-manifest" {
 				// Get the platform digest this attestation is linked to
 				platformDigest := m.Annotations["vnd.docker.reference.digest"]
@@ -399,7 +405,7 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 			}
 
 			// Check referrers API for this manifest (only for actual platform manifests)
-			if m.Digest != desc.Digest.String() && m.Digest != "" && m.Platform != nil {
+			if m.Digest != info.Digest && m.Digest != "" && m.Platform != nil {
 				// Skip attestation manifests - they don't have referrers of their own
 				if _, isAttestation := m.Annotations["vnd.docker.reference.type"]; isAttestation {
 					continue
@@ -435,10 +441,7 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 	}
 
 	// Discover cosign-tagged artifacts (.sig and .att tags)
-	// Cosign stores signatures and attestations using a tag naming convention:
-	//   sha256-<hex>.sig — cosign signatures
-	//   sha256-<hex>.att — cosign attestations (may contain VEX, provenance, etc.)
-	cosignDigests := []string{desc.Digest.String()}
+	cosignDigests := []string{info.Digest}
 	if info.ImageIndex != nil {
 		for _, m := range info.ImageIndex.Manifests {
 			// Only check real platform manifests, not attestation manifests (unknown/unknown)
@@ -472,13 +475,6 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 
 	info.Referrers = referrers
 	logVerbose("Total referrers found: %d", len(referrers))
-
-	// Only show the tag that was requested, not all tags in the repository
-	// (fetching all tags is expensive and usually not what users want)
-	logVerbose("Using requested tag: %s", info.Tag)
-
-	logVerbose("Image inspection complete")
-	return info, nil
 }
 
 // MatchingTagsResult holds tags that share the same digest as the queried image.
