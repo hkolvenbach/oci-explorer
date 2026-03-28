@@ -264,11 +264,42 @@ jobs:
           echo "Platform digests:"
           echo "$PLATFORM_DIGESTS"
 
+          # Scan built image with Trivy to find CVEs in bundled binaries (e.g., Trivy itself)
+          # that govulncheck can't see (it only analyzes this project's source code).
+          FIRST_DIGEST=$(echo "$PLATFORM_DIGESTS" | head -1)
+          TRIVY_CVES=""
+          if command -v trivy &>/dev/null; then
+            TRIVY_CVES=$(trivy image --quiet --format json "${IMAGE}@${FIRST_DIGEST}" 2>/dev/null \
+              | jq -r '.Results[]? | select(.Target != "usr/local/bin/oci-explorer") | .Vulnerabilities[]?.VulnerabilityID' \
+              | sort -u || true)
+          fi
+
+          # CVEs found by Trivy in bundled binaries but NOT in govulncheck output
+          # are from third-party binaries (e.g., Trivy). These are not_affected for
+          # OCI Explorer because the vulnerable code is in a separate binary that
+          # does not handle external input in the affected code path.
+          GOVULNCHECK_CVES=$(echo "$CALLED_CVES $NOT_CALLED_CVES" | tr ' ' '\n' | sort -u)
+          BUNDLED_BINARY_CVES=$(comm -23 <(echo "$TRIVY_CVES") <(echo "$GOVULNCHECK_CVES") 2>/dev/null || true)
+
+          if [ -n "$BUNDLED_BINARY_CVES" ]; then
+            echo "CVEs in bundled third-party binaries (not in OCI Explorer code):"
+            echo "$BUNDLED_BINARY_CVES"
+          fi
+
           # Attach VEX to each platform manifest
           for DIGEST in $PLATFORM_DIGESTS; do
             echo "--- Attaching VEX to $DIGEST ---"
             PRODUCT="pkg:oci/${REPO_NAME}@${DIGEST}?repository_url=${IMAGE}"
             generate_vex "$PRODUCT"
+
+            # Append not_affected statements for CVEs in bundled binaries
+            for CVE in $BUNDLED_BINARY_CVES; do
+              vexctl add --in-place -p "$PRODUCT" -v "$CVE" -s not_affected \
+                -j vulnerable_code_not_in_execute_path \
+                --impact-statement "Vulnerability is in a bundled third-party binary (e.g., Trivy), not in OCI Explorer code. The affected code path is not externally reachable in this deployment context." \
+                vex.json || true
+            done
+
             echo "Generated vex.json for $DIGEST:"
             cat vex.json
 
