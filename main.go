@@ -342,47 +342,23 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 	slog.Info("inspect", "image", imageRef)
 	slog.Debug("inspect", "image", imageRef, "remote_addr", r.RemoteAddr)
 
-	if cacheStore != nil {
-		digest, err := registry.ResolveDigest(imageRef)
-		if err == nil {
-			result, err := cacheStore.GetOrCompute(r.Context(), "inspect/"+digest, inspectCacheTTL, func() ([]byte, error) {
-				client := registry.NewClient()
-				info, err := client.InspectImage(imageRef)
-				if err != nil {
-					return nil, err
-				}
-				sr := score.Compute(info.Referrers, info.Manifest, info.Config)
-				return json.Marshal(APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: info, Score: sr}})
-			})
-			if err == nil {
-				w.Header().Set("Content-Type", "application/json")
-				if result.FromCache {
-					w.Header().Set("X-Cache", "HIT")
-				} else {
-					w.Header().Set("X-Cache", "MISS")
-				}
-				writeBytes(w, result.Data)
-				return
-			}
-			slog.Warn("cache path failed, falling through", "image", imageRef, "error", err)
-		} else {
-			slog.Warn("digest resolution failed, falling through", "image", imageRef, "error", err)
-		}
-	}
-
-	// Uncached path (cache disabled or cache error)
-	client := registry.NewClient()
-	imageInfo, err := client.InspectImage(imageRef)
+	ir, err := inspectImage(r, imageRef)
 	if err != nil {
 		slog.Error("inspect failed", "image", imageRef, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	slog.Debug("inspect complete", "image", imageRef)
-	sr := score.Compute(imageInfo.Referrers, imageInfo.Manifest, imageInfo.Config)
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: imageInfo, Score: sr}})
+	if ir.Cached {
+		if ir.FromCache {
+			w.Header().Set("X-Cache", "HIT")
+		} else {
+			w.Header().Set("X-Cache", "MISS")
+		}
+	}
+	sr := score.Compute(ir.Info.Referrers, ir.Info.Manifest, ir.Info.Config)
+	writeJSON(w, APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: ir.Info, Score: sr}})
 }
 
 func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
@@ -555,42 +531,53 @@ func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, APIResponse{Success: true, Data: result})
 }
 
-func computeScoreForImage(r *http.Request, imageRef string) (*score.Result, error) {
-	var info *registry.ImageInfo
+// inspectResult holds the outcome of inspectImage, including cache metadata.
+type inspectResult struct {
+	Info      *registry.ImageInfo
+	FromCache bool // true if the data was served from cache
+	Cached    bool // true if cache was involved at all (hit or miss)
+}
 
+// inspectImage fetches image info using the cache if available, falling back to
+// a direct registry call.
+func inspectImage(r *http.Request, imageRef string) (*inspectResult, error) {
 	if cacheStore != nil {
 		digest, err := registry.ResolveDigest(imageRef)
 		if err == nil {
 			result, err := cacheStore.GetOrCompute(r.Context(), "inspect/"+digest, inspectCacheTTL, func() ([]byte, error) {
 				client := registry.NewClient()
-				imgInfo, err := client.InspectImage(imageRef)
+				info, err := client.InspectImage(imageRef)
 				if err != nil {
 					return nil, err
 				}
-				sr := score.Compute(imgInfo.Referrers, imgInfo.Manifest, imgInfo.Config)
-				return json.Marshal(APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: imgInfo, Score: sr}})
+				sr := score.Compute(info.Referrers, info.Manifest, info.Config)
+				return json.Marshal(APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: info, Score: sr}})
 			})
 			if err == nil {
 				var apiResp struct {
 					Data registry.ImageInfo `json:"data"`
 				}
 				if err := json.Unmarshal(result.Data, &apiResp); err == nil {
-					info = &apiResp.Data
+					return &inspectResult{Info: &apiResp.Data, FromCache: result.FromCache, Cached: true}, nil
 				}
 			}
 		}
 	}
 
-	if info == nil {
-		client := registry.NewClient()
-		imgInfo, err := client.InspectImage(imageRef)
-		if err != nil {
-			return nil, err
-		}
-		info = imgInfo
+	client := registry.NewClient()
+	info, err := client.InspectImage(imageRef)
+	if err != nil {
+		return nil, err
 	}
+	return &inspectResult{Info: info}, nil
+}
 
-	sr := score.Compute(info.Referrers, info.Manifest, info.Config)
+func computeScoreForImage(r *http.Request, imageRef string) (*score.Result, error) {
+	ir, err := inspectImage(r, imageRef)
+	if err != nil {
+		return nil, err
+	}
+	sr := score.Compute(ir.Info.Referrers, ir.Info.Manifest, ir.Info.Config)
 	return &sr, nil
 }
 
