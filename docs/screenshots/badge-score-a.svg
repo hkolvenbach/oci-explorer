@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="152" height="20" role="img" aria-label="supply chain score: A">
+<title>supply chain score: A</title>
+<linearGradient id="s" x2="0" y2="100%">
+<stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
+<stop offset="1" stop-opacity=".1"/>
+</linearGradient>
+<clipPath id="r">
+<rect width="152" height="20" rx="3" fill="#fff"/>
+</clipPath>
+<g clip-path="url(#r)">
+<rect width="133" height="20" fill="#555"/>
+<rect x="133" width="19" height="20" fill="#4ade80"/>
+<rect width="152" height="20" fill="url(#s)"/>
+</g>
+<g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="110">
+<text x="780" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="1040" lengthAdjust="spacing">supply chain score</text>
+<text x="780" y="140" transform="scale(.1)" textLength="1040" lengthAdjust="spacing">supply chain score</text>
+<text x="1420" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="70" lengthAdjust="spacing">A</text>
+<text x="1420" y="140" transform="scale(.1)" textLength="70" lengthAdjust="spacing">A</text>
+</g>
+<g transform="translate(5,3) scale(0.4375)">
+<rect width="32" height="32" rx="6" fill="#f97316"/>
+<path d="M16 6l-9 4.5v11L16 26l9-4.5v-11L16 6z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+<path d="M7 10.5L16 15l9-4.5M16 15v11" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
+</g>
+</svg>

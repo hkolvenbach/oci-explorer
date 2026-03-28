@@ -35,6 +35,7 @@ Visualize OCI container image structures including layers, manifests, referrers,
 - **Matching Tags** - Discover which tags in a repository point to the same digest. For Docker Hub and GCR/Artifact Registry, shows all aliases (e.g., `alpine:latest` → also `3.23.3`, `3.23`, `3`) with the current tag highlighted. Unsupported registries show an explanatory note.
 - **Tag Listing** - Browse all tags for a repository with clickable navigation to inspect any tag.
 - **Supply Chain Security Score** - At-a-glance 0–10 score with animated ring and letter grade. Evaluates supply chain artifact presence: signatures, SBOMs, attestations, VEX documents, minimal base image characteristics (few layers, small size, non-root user, no shell entrypoint). Expandable detail panel shows each criterion with pass/fail status.
+- **Embeddable Badges** - Shields.io-compatible badge endpoints for embedding supply chain scores in GitHub READMEs and websites. Self-rendered SVG (`/badge/score.svg`) and shields.io endpoint JSON (`/badge/score.json`) with the OCI Explorer icon.
 - **Graph View** - Interactive directed graph with pan, zoom, and fit-to-view controls. Shows the full image structure: image index, platform manifests, configs, layers, and all referrer artifacts (SBOMs, VEX, attestations, signatures) with color-coded nodes and relationship edges.
 - **Copyable Digests** - Click any SHA-256 digest in the UI to copy the full value to the clipboard.
 - **Mobile Responsive** - Adaptive layout with stacked columns on small screens and side-by-side panels on desktop.
@@ -113,6 +114,20 @@ On-demand Trivy scan of `golang:1.21` — 4,088 deduplicated vulnerabilities acr
 Interactive graph visualization of the full image structure with SBOMs, VEX, attestations, and signatures:
 
 ![Graph view](docs/screenshots/graph.png)
+
+### Embeddable Badges
+
+Supply chain score badges for embedding in READMEs and websites:
+
+![supply chain score](docs/screenshots/badge-score-a.svg) ![supply chain score error](docs/screenshots/badge-score-error.svg)
+
+```markdown
+<!-- Self-rendered SVG (direct) -->
+![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+
+<!-- Via shields.io (supports style overrides like ?style=for-the-badge) -->
+![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+```
 
 ### Command Line Flags
 
