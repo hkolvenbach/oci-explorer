@@ -25,9 +25,11 @@
 <div class="bg-slate-800 border border-slate-700 rounded-md p-5 mb-6 fade-in overflow-hidden">
   <div class="flex flex-col md:flex-row md:items-start gap-6 md:gap-8">
     <!-- Supply Chain Security Score -->
+    {#if scoreResult}
     <div class="flex-shrink-0 md:border-r border-b md:border-b-0 border-slate-700 pb-4 md:pb-0 md:pr-8">
       <SecurityScore score={scoreResult} bind:showDetails={showScoreDetails} />
     </div>
+    {/if}
     <!-- Image Info -->
     <div class="flex-1 min-w-0">
       <!-- Row 1: repo name + digest, baseline-aligned -->
@@ -80,7 +82,7 @@
   </div>
 </div>
 
-{#if showScoreDetails}
+{#if showScoreDetails && scoreResult}
   <div class="bg-slate-800/50 border border-slate-700 rounded-lg p-4 mb-6 fade-in">
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
