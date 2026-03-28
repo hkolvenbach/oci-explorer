@@ -13,6 +13,17 @@
   let scanError = $state('');
   let scanStep = $state('');
   let globalStatusFilter = $state<'all' | 'fixable' | 'nofix' | 'vexed'>('all');
+  let elapsedSeconds = $state(0);
+  let timerInterval = $state<ReturnType<typeof setInterval> | null>(null);
+
+  function startTimer() {
+    elapsedSeconds = 0;
+    timerInterval = setInterval(() => { elapsedSeconds++; }, 1000);
+  }
+
+  function stopTimer() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  }
 
   // On mount, check if cached scan results exist (non-blocking, never triggers Trivy)
   $effect(() => {
@@ -78,6 +89,7 @@
     scanError = '';
     scanResult = null;
     scanCachedAt = undefined;
+    startTimer();
 
     try {
       scanStep = 'Scanning with Trivy...';
@@ -122,6 +134,7 @@
       scanError = (err as Error).message;
       scanStep = '';
     } finally {
+      stopTimer();
       isScanning = false;
     }
   }
@@ -137,7 +150,7 @@
       </svg>
       <span class="font-semibold text-slate-100">Vulnerability Scan</span>
       {#if isScanning}
-        <span class="text-sm text-slate-400">{scanStep}</span>
+        <span class="text-sm text-slate-400">{scanStep}{#if elapsedSeconds > 0} {elapsedSeconds}s{/if}</span>
       {:else if scanResult && summaryStats}
         <div class="flex items-center gap-1.5 flex-wrap">
           {#if summaryStats.total === 0}

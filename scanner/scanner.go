@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"os/exec"
 	"sort"
 	"strings"
@@ -22,9 +22,13 @@ func SetVerbose(v bool) {
 // logVerbose prints a message only if verbose mode is enabled
 func logVerbose(format string, args ...any) {
 	if verbose {
-		log.Printf("[VERBOSE] [scanner] "+format, args...)
+		slog.Debug(fmt.Sprintf(format, args...), "component", "scanner")
 	}
 }
+
+// scanSem limits concurrent Trivy processes to 1 to prevent OOM on
+// memory-constrained hosts (e.g., 512 MB Fly.io machines).
+var scanSem = make(chan struct{}, 1)
 
 // TrivyReport is the top-level Trivy JSON output structure.
 type TrivyReport struct {
@@ -109,6 +113,7 @@ type TargetSummary struct {
 }
 
 // ScanImage runs trivy against the given image reference and returns processed results.
+// Only one Trivy process runs at a time; additional callers block until the semaphore is available.
 func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 	// Check that trivy is installed
 	trivyPath, err := exec.LookPath("trivy")
@@ -117,21 +122,33 @@ func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 	}
 	logVerbose("Found trivy at: %s", trivyPath)
 
+	// Acquire semaphore — at most 1 concurrent Trivy process
+	select {
+	case scanSem <- struct{}{}:
+		defer func() { <-scanSem }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("scan cancelled while waiting for semaphore: %w", ctx.Err())
+	}
+
 	// Run trivy with a 5-minute timeout
 	scanCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	logVerbose("Scanning image: %s", imageRef)
-	cmd := exec.CommandContext(scanCtx, trivyPath, "image", "--format", "json", "--quiet", imageRef)
+	slog.Info("scan started", "image", imageRef)
+	start := time.Now()
+	cmd := exec.CommandContext(scanCtx, trivyPath, "image", "--format", "json", "--quiet", "--scanners", "vuln", imageRef)
 	output, err := cmd.Output()
+	duration := time.Since(start)
 	if err != nil {
 		if scanCtx.Err() == context.DeadlineExceeded {
+			slog.Error("scan timed out", "image", imageRef, "duration", duration.Round(time.Millisecond))
 			return nil, fmt.Errorf("trivy scan timed out after 5 minutes")
 		}
-		// Include stderr in the error message if available
 		if exitErr, ok := err.(*exec.ExitError); ok {
+			slog.Error("scan failed", "image", imageRef, "duration", duration.Round(time.Millisecond), "stderr", string(exitErr.Stderr))
 			return nil, fmt.Errorf("trivy scan failed: %s", string(exitErr.Stderr))
 		}
+		slog.Error("scan failed", "image", imageRef, "duration", duration.Round(time.Millisecond), "error", err)
 		return nil, fmt.Errorf("trivy scan failed: %w", err)
 	}
 	logVerbose("Trivy output: %d bytes", len(output))
@@ -142,7 +159,7 @@ func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 	}
 
 	result := processReport(report)
-	logVerbose("Scan complete: %d total vulnerabilities across %d targets", result.TotalCount, len(result.Targets))
+	slog.Info("scan complete", "image", imageRef, "duration", duration.Round(time.Millisecond), "vulns", result.TotalCount, "targets", len(result.Targets))
 	return result, nil
 }
 

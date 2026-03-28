@@ -548,11 +548,12 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	countRequest("scan")
-	slog.Info("scan", "image", imageRef)
-	slog.Debug("scan", "image", imageRef, "remote_addr", r.RemoteAddr)
 
 	force := r.URL.Query().Get("force") == "1"
 	peek := r.URL.Query().Get("peek") == "1"
+	start := time.Now()
+
+	slog.Info("scan request", "image", imageRef, "force", force, "peek", peek)
 
 	// Peek mode: check cache only, return 404 on miss (never triggers Trivy).
 	// Used by the frontend to instantly show cached results after inspect.
@@ -561,6 +562,7 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			data, cachedAt, err := cacheStore.Get(r.Context(), "scan/"+digest)
 			if err == nil {
+				slog.Info("scan peek hit", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond))
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("X-Cache", "HIT")
 				if !cachedAt.IsZero() {
@@ -570,6 +572,7 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		slog.Info("scan peek miss", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond))
 		w.WriteHeader(http.StatusNotFound)
 		writeJSON(w, APIResponse{Success: false, Error: "no cached scan results"})
 		return
@@ -586,13 +589,13 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 				return json.Marshal(APIResponse{Success: true, Data: scanResult})
 			})
 			if err == nil {
-				w.Header().Set("Content-Type", "application/json")
+				cacheStatus := "MISS"
 				if result.FromCache {
-					w.Header().Set("X-Cache", "HIT")
-				} else {
-					w.Header().Set("X-Cache", "MISS")
+					cacheStatus = "HIT"
 				}
-				// Inject cachedAt for the frontend to show staleness
+				slog.Info("scan response", "image", imageRef, "cache", cacheStatus, "duration", time.Since(start).Round(time.Millisecond))
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("X-Cache", cacheStatus)
 				if !result.CachedAt.IsZero() {
 					w.Header().Set("X-Cached-At", result.CachedAt.UTC().Format(time.RFC3339))
 				}
@@ -608,7 +611,7 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 	// Force refresh or uncached path -- also store in cache if available
 	scanResult, err := scanner.ScanImage(r.Context(), imageRef)
 	if err != nil {
-		slog.Error("scan failed", "image", imageRef, "error", err)
+		slog.Error("scan failed", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond), "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -627,7 +630,7 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	logVerbose("Scan complete for %s: %d vulnerabilities found", imageRef, scanResult.TotalCount)
+	slog.Info("scan response", "image", imageRef, "cache", "NONE", "vulns", scanResult.TotalCount, "duration", time.Since(start).Round(time.Millisecond))
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{Success: true, Data: scanResult})
 }
