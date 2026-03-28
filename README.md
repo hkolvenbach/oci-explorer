@@ -12,21 +12,17 @@ Visualize OCI container image structures including layers, manifests, referrers,
 
 ---
 
-### Add a supply chain score badge to your project
+### Add a supply chain score badge to your repo
 
-Show the supply chain security score of any public container image in your README:
+Does your project publish a container image? Add a badge like this one &rarr; ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest) &larr; to show its supply chain security score.
+
+Just drop this into your README and replace the image reference:
 
 ```markdown
 ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=YOUR_IMAGE:TAG)
 ```
 
-Or use the [shields.io endpoint](https://shields.io/badges/endpoint-badge) for style customization:
-
-```markdown
-![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=YOUR_IMAGE:TAG)
-```
-
-Replace `YOUR_IMAGE:TAG` with any public image reference (e.g., `ghcr.io/org/repo:latest`, `alpine:3.21`).
+The badge scores your image on signatures, SBOMs, attestations, VEX documents, and base image hygiene. Works with any public image on Docker Hub, GHCR, GCR, Quay, and other OCI registries. Want style options? Use the [shields.io endpoint](https://shields.io/badges/endpoint-badge) instead: `https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=YOUR_IMAGE:TAG`
 
 ---
 
