@@ -22,7 +22,11 @@ Just drop this into your README and replace the image reference:
 ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=YOUR_IMAGE:TAG)
 ```
 
-The badge scores your image on signatures, SBOMs, attestations, VEX documents, and base image hygiene. Works with any public image on Docker Hub, GHCR, GCR, Quay, and other OCI registries. Want style options? Use the [shields.io endpoint](https://shields.io/badges/endpoint-badge) instead: `https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=YOUR_IMAGE:TAG`
+The badge scores your image on signatures, SBOMs, attestations, VEX documents, and base image hygiene. Works with any public image on Docker Hub, GHCR, GCR, Quay, and other OCI registries. Want style options? Use the [shields.io endpoint](https://shields.io/badges/endpoint-badge) instead:
+
+```markdown
+![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=YOUR_IMAGE:TAG)
+```
 
 ---
 
