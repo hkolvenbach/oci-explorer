@@ -69,7 +69,7 @@ func getRequestCounts() map[string]uint64 {
 // Cache TTLs per endpoint type. All keys are SHA256 digest-based;
 // the tag-to-digest resolution (ResolveDigest) runs on every request and is never cached.
 const (
-	inspectCacheTTL = 1 * time.Hour       // 1 hour -- referrer list can grow after image push
+	inspectCacheTTL = 30 * 24 * time.Hour // 30 days -- manifest/config/layers are immutable
 	scanCacheTTL    = 24 * time.Hour      // 24 hours -- Trivy DB updates daily
 	sbomCacheTTL    = 30 * 24 * time.Hour // 30 days -- content-addressed, immutable
 	vexCacheTTL     = 30 * 24 * time.Hour // 30 days -- content-addressed, immutable
@@ -538,8 +538,10 @@ type inspectResult struct {
 	Cached    bool // true if cache was involved at all (hit or miss)
 }
 
-// inspectImage fetches image info using the cache if available, falling back to
-// a direct registry call.
+// inspectImage fetches image info using the cache for the base data
+// (manifest, config, layers — immutable for a digest) and always fetches
+// referrers fresh from the registry since they can be attached after the
+// image is pushed.
 func inspectImage(r *http.Request, imageRef string) (*inspectResult, error) {
 	if cacheStore != nil {
 		digest, err := registry.ResolveDigest(imageRef)
@@ -550,6 +552,7 @@ func inspectImage(r *http.Request, imageRef string) (*inspectResult, error) {
 				if err != nil {
 					return nil, err
 				}
+				// Cache the full response including referrers from the initial fetch
 				sr := score.Compute(info.Referrers, info.Manifest, info.Config)
 				return json.Marshal(APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: info, Score: sr}})
 			})
@@ -558,7 +561,13 @@ func inspectImage(r *http.Request, imageRef string) (*inspectResult, error) {
 					Data registry.ImageInfo `json:"data"`
 				}
 				if err := json.Unmarshal(result.Data, &apiResp); err == nil {
-					return &inspectResult{Info: &apiResp.Data, FromCache: result.FromCache, Cached: true}, nil
+					info := &apiResp.Data
+					// Always refresh referrers — they can be attached after the image is pushed
+					if result.FromCache {
+						client := registry.NewClient()
+						client.PopulateReferrers(info)
+					}
+					return &inspectResult{Info: info, FromCache: result.FromCache, Cached: true}, nil
 				}
 			}
 		}
