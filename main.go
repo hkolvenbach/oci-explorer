@@ -20,10 +20,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/hkolvenbach/oci-explorer/badge"
 	"github.com/hkolvenbach/oci-explorer/cache"
 	"github.com/hkolvenbach/oci-explorer/docshandler"
 	"github.com/hkolvenbach/oci-explorer/registry"
 	"github.com/hkolvenbach/oci-explorer/scanner"
+	"github.com/hkolvenbach/oci-explorer/score"
 )
 
 //go:embed web/dist/*
@@ -226,6 +228,12 @@ func main() {
 	} else {
 		logVerbose("  - GET /api/metrics")
 	}
+
+	// Badge routes
+	r.HandleFunc("/badge/score.svg", handleBadgeSVG).Methods("GET")
+	r.HandleFunc("/badge/score.json", handleBadgeJSON).Methods("GET")
+	logVerbose("  - GET /badge/score.svg")
+	logVerbose("  - GET /badge/score.json")
 
 	// Serve documentation files at /docs/
 	logVerbose("Setting up documentation file server...")
@@ -537,6 +545,94 @@ func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 	logVerbose("Found %d matching tags for %s", len(result.Tags), imageRef)
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{Success: true, Data: result})
+}
+
+func computeScoreForImage(r *http.Request, imageRef string) (*score.Result, error) {
+	var info *registry.ImageInfo
+
+	if cacheStore != nil {
+		digest, err := registry.ResolveDigest(imageRef)
+		if err == nil {
+			result, err := cacheStore.GetOrCompute(r.Context(), "inspect/"+digest, inspectCacheTTL, func() ([]byte, error) {
+				client := registry.NewClient()
+				imgInfo, err := client.InspectImage(imageRef)
+				if err != nil {
+					return nil, err
+				}
+				return json.Marshal(APIResponse{Success: true, Data: imgInfo})
+			})
+			if err == nil {
+				var apiResp struct {
+					Data registry.ImageInfo `json:"data"`
+				}
+				if err := json.Unmarshal(result.Data, &apiResp); err == nil {
+					info = &apiResp.Data
+				}
+			}
+		}
+	}
+
+	if info == nil {
+		client := registry.NewClient()
+		imgInfo, err := client.InspectImage(imageRef)
+		if err != nil {
+			return nil, err
+		}
+		info = imgInfo
+	}
+
+	sr := score.Compute(info.Referrers, info.Manifest, info.Config)
+	return &sr, nil
+}
+
+func handleBadgeSVG(w http.ResponseWriter, r *http.Request) {
+	imageRef := r.URL.Query().Get("image")
+	if imageRef == "" {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorSVG("error"))
+		return
+	}
+
+	countRequest("badge")
+
+	result, err := computeScoreForImage(r, imageRef)
+	if err != nil {
+		slog.Warn("badge score failed", "image", imageRef, "error", err)
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorSVG("not found"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	writeBytes(w, badge.RenderSVG(*result))
+}
+
+func handleBadgeJSON(w http.ResponseWriter, r *http.Request) {
+	imageRef := r.URL.Query().Get("image")
+	if imageRef == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorJSON("error"))
+		return
+	}
+
+	countRequest("badge")
+
+	result, err := computeScoreForImage(r, imageRef)
+	if err != nil {
+		slog.Warn("badge score failed", "image", imageRef, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorJSON("not found"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	writeBytes(w, badge.RenderJSON(*result))
 }
 
 func handleScanImage(w http.ResponseWriter, r *http.Request) {
