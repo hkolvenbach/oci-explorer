@@ -81,7 +81,7 @@ The application starts a web server at http://localhost:8080
 ├─────────────────────────────────────────────────┤
 │  URL:      http://localhost:8080                │
 │  Platform: darwin/arm64                         │
-│  Version:  0.5.0                                │
+│  Version:  1.0.0                                │
 │  Press Ctrl+C to stop                           │
 └─────────────────────────────────────────────────┘
 ```
@@ -347,9 +347,9 @@ cosign verify-attestation \
 ### Verify binary provenance (GitHub Artifact Attestation)
 
 ```bash
-gh release download v0.2.2 --repo hkolvenbach/oci-explorer \
+gh release download v1.0.0 --repo hkolvenbach/oci-explorer \
   --pattern 'oci-explorer-*-linux-amd64.tar.gz'
-gh attestation verify oci-explorer-0.2.2-linux-amd64.tar.gz \
+gh attestation verify oci-explorer-1.0.0-linux-amd64.tar.gz \
   --repo hkolvenbach/oci-explorer
 ```
 
@@ -365,47 +365,44 @@ docker buildx imagetools inspect ghcr.io/hkolvenbach/oci-explorer:latest \
 You can also use OCI Image Explorer itself to visually inspect all of these supply chain artifacts — signatures, SBOMs, attestations, and provenance — by pointing it at its own image:
 
 ```
-http://localhost:8080/?image=ghcr.io/hkolvenbach/oci-explorer:latest
+http://localhost:8080/?q=ghcr.io/hkolvenbach/oci-explorer:latest
 ```
 
 ## Project Structure
 
 ```
 oci-explorer/
-├── adrs/                # Architecture decision records
+├── .devcontainer/       # Dev container configuration
+├── cache/               # S3-compatible response cache package
 ├── docs/
+│   ├── adrs/            # Architecture decision records
+│   ├── screenshots/     # Browser screenshots for README
 │   ├── api.md           # API reference (served at /docs/)
-│   ├── openapi.yaml     # OpenAPI specification (served at /api/openapi.yaml)
-│   └── screenshots/     # Browser screenshots for README
+│   └── openapi.yaml     # OpenAPI specification (served at /api/openapi.yaml)
 ├── docshandler/         # Documentation HTTP handlers (extracted from main.go)
-│   ├── docshandler.go   # ServeDocs, ServeOpenAPISpec, markdownToHTML
-│   └── docshandler_test.go
-├── registry/
-│   ├── client.go        # OCI registry client using go-containerregistry
-│   ├── client_test.go   # Registry client tests
+├── registry/            # OCI registry client using go-containerregistry
 │   └── testdata/        # Test fixtures (Alpine, Kairos, VEX sample data)
-├── scanner/
-│   ├── scanner.go       # Trivy vulnerability scanner (subprocess-based)
-│   └── scanner_test.go  # Scanner unit tests
+├── scanner/             # Trivy vulnerability scanner (subprocess-based)
+├── scripts/             # Test and verification scripts
 ├── tools/
 │   ├── download-alpine/ # Alpine test data downloader
 │   └── sbom-extractor/  # Reference SBOM extraction tool
 ├── web/                 # Svelte 5 + TypeScript frontend (Vite)
 │   ├── src/
-│   │   ├── components/  # Svelte components
+│   │   ├── components/  # 22 Svelte components
 │   │   ├── lib/         # API client, types, state, utilities
 │   │   ├── App.svelte   # Root component
 │   │   └── main.ts      # Entry point
 │   └── package.json
-├── Dockerfile           # Container build
+├── docker-compose.dev.yml # Development stack (app + Tigris cache)
+├── Dockerfile           # Multi-stage container build (distroless)
 ├── fly.toml             # Fly.io deployment config
 ├── main.go              # HTTP server and handlers
 ├── Makefile             # Build automation
-├── go.mod               # Go module definition
-├── go.sum               # Dependency checksums
-├── LICENSE              # Apache 2.0
-├── README.md            # This file
-└── REFERENCES.md        # OCI and SBOM specification references
+├── HOSTED.md            # Hosted deployment guide (S3 cache, Fly.io)
+├── DEVELOPER.md         # Developer guide
+├── REFERENCES.md        # OCI and SBOM specification references
+└── LICENSE              # Apache 2.0
 ```
 
 ## Dependencies
