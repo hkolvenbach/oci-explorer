@@ -39,7 +39,7 @@ jobs:
         run: go mod download && go mod verify
 
       - name: Install Trivy
-        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.2/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.2
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.3/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
 
       - name: Run tests
         run: go test -v ./...

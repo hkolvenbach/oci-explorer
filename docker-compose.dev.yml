@@ -30,7 +30,7 @@ services:
       dockerfile: Dockerfile
       args:
         VERSION: dev-docker-compose
-        TRIVY_VERSION: "0.69.2"
+        TRIVY_VERSION: "0.69.3"
     ports:
       - "8080:8080"   # HTTP server
       - "2345:2345"   # Delve debugger (remote attach)

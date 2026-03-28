@@ -10,7 +10,7 @@ COPY web/ ./
 RUN npm run build
 
 # Go build stage
-FROM --platform=$BUILDPLATFORM golang:1.25.8-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -39,7 +39,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 # Trivy stage — download pinned release for the target platform
 FROM alpine:3.23 AS trivy-dl
 
-ARG TRIVY_VERSION=0.69.2
+ARG TRIVY_VERSION=0.69.3
 
 RUN apk add --no-cache curl
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v${TRIVY_VERSION}
