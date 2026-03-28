@@ -116,6 +116,42 @@ Follow established standards and conventions. When in doubt, look up the relevan
 - Keep the subject line under 72 characters
 - Use the body for additional context when needed
 
+### Release Versioning
+
+Releases are automated by `paulhatch/semantic-version` in `.github/workflows/release.yml`. The action scans **commit message bodies** (not PR titles or PR bodies) for version bump signals:
+
+- **Patch bump** (default): every commit without a signal bumps patch (e.g., v0.5.0 → v0.5.1)
+- **Minor bump**: include the literal text `MINOR` in the **commit body** (e.g., v0.5.x → v0.6.0)
+- **Major bump**: include the literal text `MAJOR` in the **commit body** (e.g., v0.x.y → v1.0.0)
+
+**Where to put the keyword matters:**
+
+- `MINOR` in a **PR body** does NOT work — GitHub squash-merge discards the PR body
+- `MINOR` in a **commit message body** DOES work — the action reads the final commit on main
+
+**Correct example** (squash merge commit that triggers minor bump):
+
+```
+feat: add response cache (#38)
+
+MINOR
+
+Co-Authored-By: ...
+```
+
+**When using squash-merge PRs**, configure GitHub to use the PR title as commit subject and PR description as commit body, OR create a separate commit with the keyword:
+
+```bash
+git commit --allow-empty -m "$(cat <<'EOF'
+chore: bump minor version for v0.6.0
+
+MINOR
+EOF
+)"
+```
+
+The release workflow runs on every push to main. It computes the next version by scanning all commits since the last tag.
+
 ### Go Conventions
 
 - Module path: `github.com/hkolvenbach/oci-explorer`
