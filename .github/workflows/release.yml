@@ -130,6 +130,8 @@ jobs:
   release-docker:
     runs-on: ubuntu-latest
     needs: [test, version, release-binaries]
+    outputs:
+      digest: ${{ steps.docker-push.outputs.digest }}
     permissions:
       packages: write
       id-token: write
@@ -278,9 +280,6 @@ jobs:
               "${IMAGE}@${DIGEST}"
           done
 
-          # Save first platform digest for smoke test and upload last VEX as artifact
-          echo "$PLATFORM_DIGESTS" | head -1 > /tmp/first-platform-digest.txt
-
       - name: Upload VEX document as build artifact
         if: inputs.dry-run != true
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -289,53 +288,228 @@ jobs:
           path: vex.json
           retention-days: 90
 
-      - name: Install verification tools
-        if: inputs.dry-run != true
-        run: |
-          # Install Trivy
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.3/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
+  smoke-test:
+    runs-on: ubuntu-latest
+    needs: [version, release-binaries, release-docker]
+    if: inputs.dry-run != true
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
-      - name: Verify signatures and attestations (smoke test)
-        if: inputs.dry-run != true
+      - name: Install cosign
+        uses: sigstore/cosign-installer@c56c2d3e59e4281cc41dea2217323ba5694b171e # v3.8.0
+
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.3/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
+
+      - name: Login to GHCR (read-only)
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 1. Container startup test ──────────────────────────────────────
+      - name: "Smoke test: container startup"
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}:${{ needs.version.outputs.version }}"
+          echo "Pulling and starting $IMAGE..."
+          docker run -d --name smoke-test -p 8080:8080 -e PORT=8080 "$IMAGE"
+
+          echo "Waiting for /api/health (up to 30s)..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then
+              echo "Health check passed after ${i}s"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "FAIL: container did not become healthy within 30s"
+              docker logs smoke-test
+              exit 1
+            fi
+            sleep 1
+          done
+
+          HEALTH=$(curl -sf http://localhost:8080/api/health)
+          echo "Health response: $HEALTH"
+
+          # Verify version field matches
+          GOT_VERSION=$(echo "$HEALTH" | jq -r '.version')
+          WANT_VERSION="${{ needs.version.outputs.version }}"
+          if [ "$GOT_VERSION" != "$WANT_VERSION" ]; then
+            echo "FAIL: version mismatch (got=$GOT_VERSION, want=$WANT_VERSION)"
+            exit 1
+          fi
+          echo "PASS: version matches ($GOT_VERSION)"
+
+          # Verify trivyAvailable field exists
+          TRIVY=$(echo "$HEALTH" | jq -r '.trivyAvailable')
+          if [ "$TRIVY" != "true" ] && [ "$TRIVY" != "false" ]; then
+            echo "FAIL: trivyAvailable field missing or invalid (got=$TRIVY)"
+            exit 1
+          fi
+          echo "PASS: trivyAvailable=$TRIVY"
+
+          docker stop smoke-test && docker rm smoke-test
+          echo "Container smoke test passed."
+
+      # ── 2. Binary execution test ───────────────────────────────────────
+      - name: "Smoke test: binary execution"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          ASSET="oci-explorer-${VERSION}-linux-amd64.tar.gz"
+
+          echo "Downloading $ASSET from release v${VERSION}..."
+          gh release download "v${VERSION}" \
+            --repo "${{ github.repository }}" \
+            --pattern "$ASSET" \
+            --dir /tmp/smoke-binary
+
+          echo "Extracting binary..."
+          tar -xzf "/tmp/smoke-binary/$ASSET" -C /tmp/smoke-binary
+          chmod +x /tmp/smoke-binary/oci-explorer-linux-amd64
+
+          echo "Starting binary on port 8081..."
+          PORT=8081 /tmp/smoke-binary/oci-explorer-linux-amd64 &
+          BINARY_PID=$!
+
+          echo "Waiting for /api/health (up to 15s)..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8081/api/health > /dev/null 2>&1; then
+              echo "Health check passed after ${i}s"
+              break
+            fi
+            if [ "$i" -eq 15 ]; then
+              echo "FAIL: binary did not become healthy within 15s"
+              kill $BINARY_PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          HEALTH=$(curl -sf http://localhost:8081/api/health)
+          echo "Health response: $HEALTH"
+
+          GOT_VERSION=$(echo "$HEALTH" | jq -r '.version')
+          if [ "$GOT_VERSION" != "$VERSION" ]; then
+            echo "FAIL: version mismatch (got=$GOT_VERSION, want=$VERSION)"
+            kill $BINARY_PID 2>/dev/null || true
+            exit 1
+          fi
+          echo "PASS: version matches ($GOT_VERSION)"
+
+          kill $BINARY_PID 2>/dev/null || true
+          wait $BINARY_PID 2>/dev/null || true
+          echo "Binary smoke test passed."
+
+      # ── 3. Cosign signature verification ───────────────────────────────
+      - name: "Smoke test: cosign signature on index"
         run: |
           IMAGE="ghcr.io/${{ github.repository }}"
-          PLATFORM_DIGEST=$(cat /tmp/first-platform-digest.txt)
-
-          echo "=== 1. Cosign: verify image signature on the index ==="
+          DIGEST="${{ needs.release-docker.outputs.digest }}"
+          echo "Verifying cosign signature on ${IMAGE}@${DIGEST}..."
           cosign verify \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            "${IMAGE}@${{ steps.docker-push.outputs.digest }}"
+            "${IMAGE}@${DIGEST}"
+          echo "PASS: cosign signature verified."
 
-          echo "=== 2. Cosign: verify VEX attestation on platform manifest ==="
-          echo "Platform digest: $PLATFORM_DIGEST"
+      # ── 4. All-platform VEX verification ───────────────────────────────
+      - name: "Smoke test: VEX attestations (all platforms)"
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          DIGEST="${{ needs.release-docker.outputs.digest }}"
+
+          echo "Extracting platform digests from ${IMAGE}@${DIGEST}..."
+          PLATFORM_DIGESTS=$(docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}" \
+            | jq -r '.manifests[] | select(.platform.architecture != "unknown") | "\(.platform.os)/\(.platform.architecture) \(.digest)"')
+
+          echo "Platform digests:"
+          echo "$PLATFORM_DIGESTS"
+
+          PLATFORM_COUNT=0
+          VERIFIED_COUNT=0
+
+          while IFS=' ' read -r PLATFORM PLAT_DIGEST; do
+            PLATFORM_COUNT=$((PLATFORM_COUNT + 1))
+            echo ""
+            echo "=== Verifying VEX for $PLATFORM ($PLAT_DIGEST) ==="
+
+            cosign verify-attestation \
+              --type openvex \
+              --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+              --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+              "${IMAGE}@${PLAT_DIGEST}"
+
+            echo "PASS: VEX attestation verified for $PLATFORM"
+            VERIFIED_COUNT=$((VERIFIED_COUNT + 1))
+          done <<< "$PLATFORM_DIGESTS"
+
+          echo ""
+          echo "Verified $VERIFIED_COUNT / $PLATFORM_COUNT platforms."
+          if [ "$VERIFIED_COUNT" -ne "$PLATFORM_COUNT" ]; then
+            echo "FAIL: not all platforms verified"
+            exit 1
+          fi
+          if [ "$PLATFORM_COUNT" -lt 2 ]; then
+            echo "FAIL: expected at least 2 platforms, got $PLATFORM_COUNT"
+            exit 1
+          fi
+          echo "PASS: all $PLATFORM_COUNT platform VEX attestations verified."
+
+      # ── 5. VEX document structure validation ───────────────────────────
+      - name: "Smoke test: VEX document structure"
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          DIGEST="${{ needs.release-docker.outputs.digest }}"
+
+          # Get the first platform digest for structure validation
+          PLAT_DIGEST=$(docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}" \
+            | jq -r '[.manifests[] | select(.platform.architecture != "unknown")] | .[0].digest')
+
+          echo "Extracting VEX document from ${PLAT_DIGEST}..."
           cosign verify-attestation \
             --type openvex \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            "${IMAGE}@${PLATFORM_DIGEST}"
+            "${IMAGE}@${PLAT_DIGEST}" 2>/dev/null \
+            | head -1 | jq -r '.payload' | base64 -d | jq '.predicate' > /tmp/extracted-vex.json
 
-          echo "=== 3. Cosign: extract and validate VEX document ==="
-          cosign verify-attestation \
-            --type openvex \
-            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            "${IMAGE}@${PLATFORM_DIGEST}" 2>/dev/null \
-            | head -1 | jq -r '.payload' | base64 -d | jq '.predicate' > extracted-vex.json
           echo "Extracted VEX document:"
-          jq '.' extracted-vex.json
+          jq '.' /tmp/extracted-vex.json
 
-          echo "=== 4. Validate VEX document structure ==="
-          jq -e '.["@context"] and .statements' extracted-vex.json > /dev/null
-          echo "VEX document has valid OpenVEX structure (context + statements present)"
+          jq -e '.["@context"] and (.statements | length > 0)' /tmp/extracted-vex.json > /dev/null
+          echo "PASS: VEX document has valid OpenVEX structure"
 
-          echo "=== 5. Trivy: scan with VEX from OCI attestation ==="
-          trivy image --vex oci --format table "${IMAGE}@${PLATFORM_DIGEST}" || true
-          echo "Trivy VEX integration check complete"
+      # ── 6. Trivy VEX integration check ─────────────────────────────────
+      - name: "Smoke test: Trivy VEX integration"
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}"
+          DIGEST="${{ needs.release-docker.outputs.digest }}"
+
+          PLAT_DIGEST=$(docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}" \
+            | jq -r '[.manifests[] | select(.platform.architecture != "unknown")] | .[0].digest')
+
+          echo "Running Trivy with VEX on ${IMAGE}@${PLAT_DIGEST}..."
+          # Trivy exits non-zero when vulnerabilities are found, which is expected.
+          # We only care that Trivy runs successfully with VEX — not that the image is vuln-free.
+          trivy image --vex oci --format table "${IMAGE}@${PLAT_DIGEST}"; TRIVY_EXIT=$?
+          if [ "$TRIVY_EXIT" -gt 1 ]; then
+            echo "FAIL: Trivy exited with unexpected error code $TRIVY_EXIT"
+            exit 1
+          fi
+          echo "PASS: Trivy VEX integration check complete (exit=$TRIVY_EXIT)."
 
   deploy-fly:
     runs-on: ubuntu-latest
-    needs: [version, release-docker]
+    needs: [version, smoke-test]
     if: inputs.dry-run != true
     permissions:
       contents: read
