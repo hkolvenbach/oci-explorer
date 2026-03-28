@@ -39,7 +39,6 @@ func TestCompute(t *testing.T) {
 		config    *registry.ImageConfig
 		wantScore float64
 		wantGrade string
-		wantColor string
 	}{
 		{
 			name:      "Perfect score (10): all 4 artifacts + all 4 base image traits",
@@ -48,7 +47,7 @@ func TestCompute(t *testing.T) {
 			config:    nonRootAppConfig,
 			wantScore: 10,
 			wantGrade: "A+",
-			wantColor: "22c55e",
+
 		},
 		{
 			name:      "Artifacts only (8): all 4 artifacts, no base image traits (10 layers, no config)",
@@ -65,7 +64,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 8,
 			wantGrade: "A",
-			wantColor: "4ade80",
 		},
 		{
 			name:      "Minimal base only (2): no artifacts, all base traits",
@@ -74,7 +72,6 @@ func TestCompute(t *testing.T) {
 			config:    nonRootAppConfig,
 			wantScore: 2,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name: "Partial (5): sig + sbom + few layers + small size",
@@ -91,7 +88,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 5,
 			wantGrade: "C",
-			wantColor: "fb923c",
 		},
 		{
 			name:      "Empty (0): nil referrers, nil manifest, nil config",
@@ -100,7 +96,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 0,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name:      "Single signature (2): one signature referrer only",
@@ -109,7 +104,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 2,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name: "Boundary B (6): sig + att + sbom, no base traits",
@@ -122,7 +116,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 6,
 			wantGrade: "B",
-			wantColor: "eab308",
 		},
 		{
 			name:      "Boundary A (8): all 4 artifacts, no base traits",
@@ -131,7 +124,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 8,
 			wantGrade: "A",
-			wantColor: "4ade80",
 		},
 		{
 			name:      "Nil manifest with config (1): non-root user + /app entrypoint = 1 point",
@@ -145,7 +137,6 @@ func TestCompute(t *testing.T) {
 			},
 			wantScore: 1,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name:      "Shell entrypoint (1.5): few layers + small + non-root but shell entrypoint",
@@ -159,7 +150,6 @@ func TestCompute(t *testing.T) {
 			},
 			wantScore: 1.5,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name:      "Root user (1.5): few layers + small + /app entrypoint but root user",
@@ -173,7 +163,6 @@ func TestCompute(t *testing.T) {
 			},
 			wantScore: 1.5,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name:      `User "0" (1.5): few layers + small + /app entrypoint but user "0"`,
@@ -187,7 +176,6 @@ func TestCompute(t *testing.T) {
 			},
 			wantScore: 1.5,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name:      "Size exactly 50MB (1): scores (<=50MB)",
@@ -201,7 +189,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 1,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 		{
 			name:      "Size over 50MB (0.5): only few layers scores",
@@ -215,7 +202,6 @@ func TestCompute(t *testing.T) {
 			config:    nil,
 			wantScore: 0.5,
 			wantGrade: "D",
-			wantColor: "f87171",
 		},
 	}
 
@@ -231,9 +217,6 @@ func TestCompute(t *testing.T) {
 			}
 			if result.Grade != tt.wantGrade {
 				t.Errorf("Grade = %q, want %q", result.Grade, tt.wantGrade)
-			}
-			if result.Color != tt.wantColor {
-				t.Errorf("Color = %q, want %q", result.Color, tt.wantColor)
 			}
 		})
 	}

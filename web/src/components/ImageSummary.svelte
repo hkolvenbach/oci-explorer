@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { ImageInfo } from '../lib/types';
-  import { formatBytes, truncateDigest, computeSecurityScore } from '../lib/utils';
+  import { formatBytes, truncateDigest, gradeColor } from '../lib/utils';
   import SecurityScore from './SecurityScore.svelte';
   import CopyableDigest from './CopyableDigest.svelte';
 
   let { data }: { data: ImageInfo } = $props();
 
-  let scoreResult = $derived(computeSecurityScore(data));
+  let scoreResult = $derived(data.score);
   let totalSize = $derived(data.manifest?.layers?.reduce((sum, l) => sum + l.size, 0) || 0);
   let validPlatforms = $derived(
     (data.imageIndex?.manifests || []).filter((m) => {
@@ -85,7 +85,7 @@
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center gap-2">
         <span class="text-sm font-semibold text-slate-200">Supply Chain Score Breakdown</span>
-        <span class="px-2 py-0.5 text-xs rounded-full font-bold" style:background="{scoreResult.color}20" style:color={scoreResult.color}>{scoreResult.grade} ({scoreResult.score}/{scoreResult.maxScore})</span>
+        <span class="px-2 py-0.5 text-xs rounded-full font-bold" style:background="{gradeColor(scoreResult.grade)}20" style:color={gradeColor(scoreResult.grade)}>{scoreResult.grade} ({scoreResult.score}/{scoreResult.maxScore})</span>
       </div>
       <button onclick={() => (showScoreDetails = false)} class="text-slate-400 hover:text-slate-200 text-xs">Close</button>
     </div>

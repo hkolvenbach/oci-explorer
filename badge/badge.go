@@ -185,7 +185,7 @@ func computeErrorBadgeData(label, message string) badgeData {
 
 // RenderSVG produces a Shields.io flat-style SVG badge for the given score result.
 func RenderSVG(result score.Result) []byte {
-	data := computeBadgeData(badgeLabel, result.Grade, result.Color)
+	data := computeBadgeData(badgeLabel, result.Grade, score.GradeColor(result.Grade))
 	var buf bytes.Buffer
 	if err := badgeTmpl.Execute(&buf, data); err != nil {
 		return RenderErrorSVG("render error")
@@ -209,7 +209,7 @@ func RenderJSON(result score.Result) []byte {
 		SchemaVersion: 1,
 		Label:         badgeLabel,
 		Message:       result.Grade,
-		Color:         result.Color,
+		Color:         score.GradeColor(result.Grade),
 		LogoSVG:       faviconSVG,
 	}
 	out, err := json.Marshal(resp)

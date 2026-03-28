@@ -1,11 +1,13 @@
 <script lang="ts">
-  import type { SecurityScoreResult } from '../lib/types';
+  import type { ScoreResult } from '../lib/types';
+  import { gradeColor } from '../lib/utils';
 
-  let { score: sr, showDetails = $bindable(false) }: { score: SecurityScoreResult; showDetails?: boolean } = $props();
+  let { score: sr, showDetails = $bindable(false) }: { score: ScoreResult; showDetails?: boolean } = $props();
 
   const circumference = 282.7;
   let offset = $derived(circumference - (sr.score / sr.maxScore) * circumference);
   let scoreDisplay = $derived(sr.score % 1 === 0 ? String(sr.score) : sr.score.toFixed(1));
+  let color = $derived(gradeColor(sr.grade));
   let btnColor = $derived(sr.score >= 8 ? 'green' : sr.score >= 6 ? 'yellow' : sr.score >= 4 ? 'orange' : 'red');
 </script>
 
@@ -14,12 +16,12 @@
   <svg width="80" height="80" viewBox="0 0 100 100">
     <circle cx="50" cy="50" r="45" fill="none" stroke="#334155" stroke-width="8" />
     <circle
-      cx="50" cy="50" r="45" fill="none" stroke={sr.color} stroke-width="8"
+      cx="50" cy="50" r="45" fill="none" stroke={color} stroke-width="8"
       stroke-dasharray={circumference} stroke-dashoffset={offset}
       stroke-linecap="round" transform="rotate(-90 50 50)" class="score-ring"
     />
     <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
-      fill={sr.color} font-size="28" font-weight="bold">{scoreDisplay}</text>
+      fill={color} font-size="28" font-weight="bold">{scoreDisplay}</text>
   </svg>
   <button
     onclick={() => (showDetails = !showDetails)}

@@ -9,33 +9,30 @@ import (
 	"github.com/hkolvenbach/oci-explorer/score"
 )
 
-// gradeResult returns a score.Result for a given grade/color combination.
-func gradeResult(grade, color string, s float64) score.Result {
+func gradeResult(grade string, s float64) score.Result {
 	return score.Result{
 		Score:    s,
 		MaxScore: 10,
 		Grade:    grade,
-		Color:    color,
 	}
 }
 
 func TestRenderSVG(t *testing.T) {
 	tests := []struct {
 		grade    string
-		color    string
 		score    float64
-		colorHex string // with # prefix
+		colorHex string // with # prefix, derived from grade
 	}{
-		{"A+", "22c55e", 10, "#22c55e"},
-		{"A", "4ade80", 8, "#4ade80"},
-		{"B", "eab308", 6, "#eab308"},
-		{"C", "fb923c", 4, "#fb923c"},
-		{"D", "f87171", 0, "#f87171"},
+		{"A+", 10, "#22c55e"},
+		{"A", 8, "#4ade80"},
+		{"B", 6, "#eab308"},
+		{"C", 4, "#fb923c"},
+		{"D", 0, "#f87171"},
 	}
 
 	for _, tt := range tests {
 		t.Run("grade_"+tt.grade, func(t *testing.T) {
-			result := gradeResult(tt.grade, tt.color, tt.score)
+			result := gradeResult(tt.grade, tt.score)
 			out := badge.RenderSVG(result)
 			s := string(out)
 
@@ -85,17 +82,17 @@ func TestRenderSVGError(t *testing.T) {
 
 func TestRenderJSON(t *testing.T) {
 	tests := []struct {
-		grade string
-		color string
-		score float64
+		grade    string
+		score    float64
+		wantColor string
 	}{
-		{"A+", "22c55e", 10},
-		{"D", "f87171", 0},
+		{"A+", 10, "22c55e"},
+		{"D", 0, "f87171"},
 	}
 
 	for _, tt := range tests {
 		t.Run("grade_"+tt.grade, func(t *testing.T) {
-			result := gradeResult(tt.grade, tt.color, tt.score)
+			result := gradeResult(tt.grade, tt.score)
 			out := badge.RenderJSON(result)
 
 			var resp badge.ShieldsResponse
@@ -111,8 +108,8 @@ func TestRenderJSON(t *testing.T) {
 			if resp.Message != tt.grade {
 				t.Errorf("message = %q, want %q", resp.Message, tt.grade)
 			}
-			if resp.Color != tt.color {
-				t.Errorf("color = %q, want %q (no # prefix)", resp.Color, tt.color)
+			if resp.Color != tt.wantColor {
+				t.Errorf("color = %q, want %q (no # prefix)", resp.Color, tt.wantColor)
 			}
 			if resp.LogoSVG == "" {
 				t.Errorf("logoSvg should be non-empty")
