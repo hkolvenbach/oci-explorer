@@ -44,6 +44,9 @@ jobs:
       - name: Run tests
         run: go test -v ./...
 
+      - name: Run integration tests (VEX + Trivy)
+        run: go test -v -count=1 -run 'TestTrivyNativeVEX|TestAppSideVEXCrossReference|TestCompareApproaches' ./scanner/
+
       - name: Build binary
         run: make build
 
