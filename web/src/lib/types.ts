@@ -110,6 +110,12 @@ export interface HealthData {
   platform: string;
   version: string;
   trivyAvailable?: boolean;
+  cacheEnabled?: boolean;
+}
+
+export interface ScanResponse {
+  result: ScanResult;
+  cachedAt?: string; // RFC3339 timestamp from X-Cached-At header
 }
 
 // Scan types

@@ -28,6 +28,8 @@ Click **Code > Codespaces > New codespace** on the repository page. The devconta
 | 8080 | Go backend (OCI Explorer) |
 | 5173 | Vite dev server (frontend hot reload) |
 | 2345 | Delve debugger (remote attach) |
+| 9000 | MinIO S3 API (local cache testing) |
+| 9001 | MinIO web console |
 
 ## Running Locally
 
@@ -59,6 +61,86 @@ make run
 ```
 
 This builds the Docker image (frontend + backend + Trivy) and runs it on port 8080.
+
+### With S3 cache (Docker Compose)
+
+`docker-compose.dev.yml` runs the full stack: app (built from Dockerfile with Trivy) + MinIO (S3-compatible cache) + automatic bucket creation.
+
+```bash
+# Start everything
+docker compose -f docker-compose.dev.yml up --build
+```
+
+> **Important:** always use `--build` after code changes. Without it, Docker Compose
+> reuses the previously built image and your changes won't take effect.
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| App | http://localhost:8080 | OCI Explorer with caching enabled |
+| MinIO API | http://localhost:9000 | S3-compatible endpoint |
+| MinIO Console | http://localhost:9001 | Web UI (login: `minioadmin` / `minioadmin`) |
+| Delve | localhost:2345 | Remote debugger attach port (see [Debugging](#debugging-with-vs-code)) |
+| Metrics | http://localhost:8080/api/metrics | Prometheus metrics (`oci_cache_*`) |
+
+Verify caching:
+
+```bash
+# First request — cache MISS
+curl -sD - 'http://localhost:8080/api/inspect?image=alpine:latest' -o /dev/null | grep X-Cache
+# X-Cache: MISS
+
+# Second request — cache HIT
+curl -sD - 'http://localhost:8080/api/inspect?image=alpine:latest' -o /dev/null | grep X-Cache
+# X-Cache: HIT
+
+# Prometheus cache metrics
+curl -s http://localhost:8080/api/metrics | grep oci_cache
+```
+
+#### Integration tests
+
+The test script validates cache MISS/HIT for inspect and scan, digest-based lookups, `?force=1` bypass, `X-Cached-At` header, and Prometheus metric counters:
+
+```bash
+# Requires the stack to be running
+./scripts/test-cache.sh
+```
+
+#### Stop and clean up
+
+```bash
+docker compose -f docker-compose.dev.yml down       # stop, keep MinIO data
+docker compose -f docker-compose.dev.yml down -v     # stop + delete MinIO data
+```
+
+#### Without Docker (native Go + MinIO)
+
+If you prefer `go run` for faster iteration (no image rebuild on code changes), start only MinIO in Docker:
+
+```bash
+# Start MinIO + create bucket
+docker compose -f docker-compose.dev.yml up minio minio-setup -d
+
+# Run the app natively with cache pointed at local MinIO
+AWS_ENDPOINT_URL_S3=http://localhost:9000 \
+AWS_ACCESS_KEY_ID=minioadmin \
+AWS_SECRET_ACCESS_KEY=minioadmin \
+AWS_REGION=us-east-1 \
+CACHE_S3_BUCKET=oci-cache \
+  go run . -v
+```
+
+> **Note:** in this mode, Trivy must be installed locally for scan endpoints to work.
+> Without Trivy, inspect and other endpoints still function normally.
+
+#### Metrics port
+
+By default, Prometheus metrics are served at `/api/metrics` on the main port. To serve them on a separate port (as the Fly.io deployment does to keep them off the public endpoint):
+
+```bash
+METRICS_PORT=9090 go run . -v
+# Metrics at http://localhost:9090/metrics instead of /api/metrics
+```
 
 ## Debugging with VS Code
 
@@ -172,13 +254,17 @@ Browser ──→ Vite (dev) or Go embed (prod) ──→ Svelte 5 SPA
                                                    ▼
                                               /api/* routes
                                                    │
-                                    ┌──────────────┼──────────────┐
+                                         ┌─── cache/ (S3) ───┐
+                                         │   HIT → return     │
+                                         │   MISS ↓           │
+                                    ┌────┴─────────┼──────────┴──┐
                                     ▼              ▼              ▼
                               registry/       scanner/       docshandler/
                            (OCI client)    (Trivy subprocess)  (markdown → HTML)
 ```
 
 - **`main.go`** — HTTP server, route registration, CORS middleware, handlers
+- **`cache/`** — S3-compatible response cache with singleflight, gzip, Prometheus metrics
 - **`registry/`** — OCI registry client (inspect, referrers, SBOM, VEX, matching tags)
 - **`scanner/`** — Trivy subprocess wrapper, JSON parsing, severity grouping
 - **`docshandler/`** — Serves `/docs/` markdown files as HTML

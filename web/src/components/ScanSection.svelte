@@ -7,10 +7,40 @@
   let { data }: { data: ImageInfo } = $props();
 
   let scanResult = $state<ScanResult | null>(null);
+  let scanCachedAt = $state<string | undefined>(undefined);
   let isScanning = $state(false);
+  let isPeeking = $state(true); // true while checking for cached results
   let scanError = $state('');
   let scanStep = $state('');
   let globalStatusFilter = $state<'all' | 'fixable' | 'nofix' | 'vexed'>('all');
+
+  // On mount, check if cached scan results exist (non-blocking, never triggers Trivy)
+  $effect(() => {
+    const imageRef = data.repository + (data.tag ? ':' + data.tag : '@' + data.digest);
+    isPeeking = true;
+    api.peekScan(imageRef).then((cached) => {
+      if (cached && !scanResult) {
+        scanResult = cached.result;
+        scanCachedAt = cached.cachedAt;
+      }
+    }).finally(() => {
+      isPeeking = false;
+    });
+  });
+
+  // Format "X hours ago" from an RFC3339 timestamp
+  function formatTimeAgo(isoTimestamp: string): string {
+    const then = new Date(isoTimestamp).getTime();
+    const now = Date.now();
+    const diffMs = now - then;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    const diffDays = Math.floor(diffHr / 24);
+    return `${diffDays}d ago`;
+  }
 
   let summaryStats = $derived.by(() => {
     if (!scanResult) return null;
@@ -42,15 +72,18 @@
     UNKNOWN: 'border-slate-500/40',
   };
 
-  async function doScan() {
+  async function doScan(force = false) {
     const imageRef = data.repository + (data.tag ? ':' + data.tag : '@' + data.digest);
     isScanning = true;
     scanError = '';
     scanResult = null;
+    scanCachedAt = undefined;
 
     try {
       scanStep = 'Scanning with Trivy...';
-      const result = await api.scanImage(imageRef);
+      const scanResponse = await api.scanImage(imageRef, force);
+      const result = scanResponse.result;
+      scanCachedAt = scanResponse.cachedAt;
 
       // Cross-reference with VEX (if VEX referrers exist)
       const vexReferrers = (data.referrers || []).filter((r) => r.type === 'vex');
@@ -138,16 +171,23 @@
         <span class="text-xs text-yellow-400">Trivy not available</span>
       {:else if isScanning}
         <div class="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"></div>
+      {:else if isPeeking}
+        <!-- brief loading while checking cache, prevents Scan button flash -->
       {:else if scanResult}
-        <button
-          onclick={doScan}
-          class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 rounded-lg text-xs font-medium transition-colors"
-        >
-          Rescan
-        </button>
+        <div class="flex items-center gap-2">
+          {#if scanCachedAt}
+            <span class="text-xs text-slate-500">Scanned {formatTimeAgo(scanCachedAt)}</span>
+          {/if}
+          <button
+            onclick={(_e: MouseEvent) => doScan(true)}
+            class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 rounded-lg text-xs font-medium transition-colors"
+          >
+            Rescan
+          </button>
+        </div>
       {:else}
         <button
-          onclick={doScan}
+          onclick={() => doScan()}
           class="px-4 py-1.5 bg-orange-400 hover:bg-orange-300 text-slate-900 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
         >
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
