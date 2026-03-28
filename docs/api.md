@@ -169,7 +169,23 @@ Content-Type: application/json
           "vnd.docker.reference.type": "attestation-manifest"
         }
       }
-    ]
+    ],
+    "score": {
+      "score": 5,
+      "maxScore": 10,
+      "grade": "C",
+      "criteria": [
+        {"key": "signature", "label": "Signature", "desc": "Image is signed (Cosign/Notary)", "present": false},
+        {"key": "sbom", "label": "SBOM", "desc": "Software Bill of Materials attached", "present": true},
+        {"key": "minimalBase", "label": "Minimal Base", "desc": "Few layers, small size, non-root, no shell entrypoint", "present": true}
+      ],
+      "minimalBaseDetails": {
+        "fewLayers": true,
+        "smallSize": true,
+        "nonRoot": false,
+        "noShellEntrypoint": false
+      }
+    }
   }
 }
 ```
@@ -190,6 +206,7 @@ Content-Type: application/json
 | `config` | object | Image configuration |
 | `tags` | array | List of tags |
 | `referrers` | array | List of referrers (SBOMs, attestations, etc.) |
+| `score` | object | Supply chain security score (see Score Object below) |
 
 #### ImageIndex Object
 
@@ -282,6 +299,34 @@ Present on signature referrers that have a Sigstore certificate.
 |-------|------|-------------|
 | `issuer` | string | OIDC issuer from Sigstore certificate extension (e.g., `https://token.actions.githubusercontent.com`) |
 | `identity` | string | Certificate identity — email or URI SAN (e.g., GitHub Actions workflow URL) |
+
+#### Score Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `score` | number | Numeric score (0-10) |
+| `maxScore` | number | Maximum possible score (always 10) |
+| `grade` | string | Letter grade: `A+`, `A`, `B`, `C`, or `D` |
+| `criteria` | array | Scoring criteria with pass/fail status |
+| `minimalBaseDetails` | object | Minimal base image trait breakdown |
+
+#### Criterion Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | string | Criterion identifier: `signature`, `attestation`, `sbom`, `vex`, `minimalBase` |
+| `label` | string | Human-readable label |
+| `desc` | string | Description of what the criterion checks |
+| `present` | boolean | Whether the criterion is met |
+
+#### MinimalBaseDetails Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fewLayers` | boolean | Image has 5 or fewer layers |
+| `smallSize` | boolean | Total layer size is 50 MB or less |
+| `nonRoot` | boolean | Container runs as non-root user |
+| `noShellEntrypoint` | boolean | Entrypoint does not invoke a shell |
 
 #### Error Response
 
@@ -787,6 +832,117 @@ curl "http://localhost:8080/api/scan?image=nginx:latest"
 
 # Scan a minimal image (likely clean)
 curl "http://localhost:8080/api/scan?image=alpine:latest"
+```
+
+---
+
+### GET /badge/score.svg
+
+Embeddable supply chain score badge as a self-rendered SVG. Returns a shields.io flat-style badge with the OCI Explorer icon and letter grade.
+
+#### Request
+
+```http
+GET /badge/score.svg?image=alpine:latest HTTP/1.1
+Host: localhost:8080
+```
+
+#### Query Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `image` | Yes | Image reference (e.g., `alpine:latest`, `ghcr.io/org/repo:tag`) |
+
+#### Response (Success)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: image/svg+xml
+Cache-Control: public, max-age=86400
+```
+
+Returns an SVG badge image. Embed in Markdown:
+
+```markdown
+![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+```
+
+#### Response (Error)
+
+Missing `image` parameter or unreachable image returns a gray error badge (never a broken image or HTTP error):
+
+```http
+HTTP/1.1 200 OK
+Content-Type: image/svg+xml
+Cache-Control: no-cache
+```
+
+---
+
+### GET /badge/score.json
+
+Supply chain score as a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge) JSON response. Includes the OCI Explorer logo via `logoSvg`.
+
+#### Request
+
+```http
+GET /badge/score.json?image=alpine:latest HTTP/1.1
+Host: localhost:8080
+```
+
+#### Query Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `image` | Yes | Image reference |
+
+#### Response (Success)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: public, max-age=86400
+
+{
+  "schemaVersion": 1,
+  "label": "supply chain score",
+  "message": "A",
+  "color": "4ade80",
+  "logoSvg": "<svg>...</svg>"
+}
+```
+
+Embed via shields.io (supports style overrides like `&style=for-the-badge`):
+
+```markdown
+![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+```
+
+#### Response Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `schemaVersion` | integer | Always `1` |
+| `label` | string | Badge label (`"supply chain score"`) |
+| `message` | string | Letter grade |
+| `color` | string | Hex color without `#` prefix |
+| `logoSvg` | string | OCI Explorer icon as inline SVG |
+| `isError` | boolean | Present and `true` on error responses |
+
+#### Response (Error)
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: no-cache
+
+{
+  "schemaVersion": 1,
+  "label": "supply chain score",
+  "message": "not found",
+  "color": "gray",
+  "isError": true
+}
 ```
 
 ---

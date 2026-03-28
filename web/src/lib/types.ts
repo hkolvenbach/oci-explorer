@@ -97,6 +97,15 @@ export interface ImageInfo {
   tags: string[];
   referrers: Referrer[];
   platformDigest?: string;
+  score?: ScoreResult;
+}
+
+export interface ScoreResult {
+  score: number;
+  maxScore: number;
+  grade: string;
+  criteria: SecurityCriterion[];
+  minimalBaseDetails: MinimalBaseDetails;
 }
 
 export interface APIResponse<T = unknown> {
@@ -228,14 +237,4 @@ export interface MinimalBaseDetails {
   smallSize: boolean;
   nonRoot: boolean;
   noShellEntrypoint: boolean;
-}
-
-export interface SecurityScoreResult {
-  score: number;
-  maxScore: number;
-  grade: string;
-  color: string;
-  colorClass: string;
-  criteria: SecurityCriterion[];
-  minimalBaseDetails: MinimalBaseDetails;
 }

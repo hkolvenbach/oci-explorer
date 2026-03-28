@@ -9,6 +9,8 @@ info:
     - List repository tags
     - Download SBOM (Software Bill of Materials) content
     - Fetch VEX (Vulnerability Exploitability eXchange) documents
+    - Scan images for vulnerabilities (requires Trivy)
+    - Generate embeddable supply chain score badges (shields.io compatible)
     - Check server health
 
     No authentication is required. Registry authentication is handled server-side
@@ -39,6 +41,8 @@ tags:
     description: VEX document endpoints
   - name: Scan
     description: Vulnerability scanning endpoints (requires Trivy)
+  - name: Badges
+    description: Embeddable shields.io-compatible supply chain score badges
 
 paths:
   /health:
@@ -497,6 +501,74 @@ paths:
                     success: false
                     error: "trivy scan failed: unable to initialize a scanner: unable to initialize a docker scanner"
 
+  # Badge endpoints are served at /badge/ (not /api/). The paths below are
+  # relative to the root server URL (http://localhost:8080), not the /api prefix.
+  /badge/score.svg:
+    servers:
+      - url: http://localhost:8080
+        description: Badge endpoints (no /api prefix)
+    get:
+      summary: Supply chain score SVG badge
+      description: |
+        Self-rendered shields.io flat-style SVG badge with the OCI Explorer icon
+        and letter grade. Returns a valid SVG on success or a gray error badge on failure.
+      operationId: getBadgeSVG
+      tags:
+        - Badges
+      parameters:
+        - name: image
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Image reference
+          example: ghcr.io/hkolvenbach/oci-explorer:latest
+      responses:
+        '200':
+          description: SVG badge image
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: "`public, max-age=86400` on success, `no-cache` on error"
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+
+  /badge/score.json:
+    servers:
+      - url: http://localhost:8080
+        description: Badge endpoints (no /api prefix)
+    get:
+      summary: Supply chain score JSON (shields.io endpoint)
+      description: |
+        Returns a shields.io endpoint badge JSON response. Embed via:
+        `https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=...`
+      operationId: getBadgeJSON
+      tags:
+        - Badges
+      parameters:
+        - name: image
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Image reference
+          example: ghcr.io/hkolvenbach/oci-explorer:latest
+      responses:
+        '200':
+          description: Shields.io endpoint badge JSON
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: "`public, max-age=86400` on success, `no-cache` on error"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShieldsResponse'
+
 components:
   schemas:
     HealthResponse:
@@ -586,6 +658,36 @@ components:
           description: Explains why tags may be empty (unsupported registry)
           example: "Registry \"ghcr.io\" does not support efficient digest-to-tag lookup. Only Docker Hub and GCR/Artifact Registry are supported."
 
+    ShieldsResponse:
+      type: object
+      description: Shields.io endpoint badge JSON schema
+      required:
+        - schemaVersion
+        - label
+        - message
+      properties:
+        schemaVersion:
+          type: integer
+          enum: [1]
+          example: 1
+        label:
+          type: string
+          example: supply chain score
+        message:
+          type: string
+          description: Letter grade or error message
+          example: A
+        color:
+          type: string
+          description: Hex color without # prefix
+          example: 4ade80
+        logoSvg:
+          type: string
+          description: OCI Explorer icon as inline SVG
+        isError:
+          type: boolean
+          description: True for error responses
+
     ErrorResponse:
       type: object
       required:
@@ -656,6 +758,81 @@ components:
           items:
             $ref: '#/components/schemas/Referrer'
           description: List of referrers (SBOMs, attestations, signatures)
+        score:
+          $ref: '#/components/schemas/ScoreResult'
+
+    ScoreResult:
+      type: object
+      description: Supply chain security score computed from referrers and base image traits
+      required:
+        - score
+        - maxScore
+        - grade
+        - criteria
+        - minimalBaseDetails
+      properties:
+        score:
+          type: number
+          description: Numeric score (0-10)
+          example: 8
+        maxScore:
+          type: number
+          description: Maximum possible score (always 10)
+          example: 10
+        grade:
+          type: string
+          description: Letter grade
+          enum: ["A+", "A", "B", "C", "D"]
+          example: A
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScoreCriterion'
+        minimalBaseDetails:
+          $ref: '#/components/schemas/MinimalBaseDetails'
+
+    ScoreCriterion:
+      type: object
+      required:
+        - key
+        - label
+        - desc
+        - present
+      properties:
+        key:
+          type: string
+          enum: [signature, attestation, sbom, vex, minimalBase]
+          example: signature
+        label:
+          type: string
+          example: Signature
+        desc:
+          type: string
+          example: Image is signed (Cosign/Notary)
+        present:
+          type: boolean
+          example: true
+
+    MinimalBaseDetails:
+      type: object
+      required:
+        - fewLayers
+        - smallSize
+        - nonRoot
+        - noShellEntrypoint
+      properties:
+        fewLayers:
+          type: boolean
+          description: Image has 5 or fewer layers
+        smallSize:
+          type: boolean
+          description: Total layer size is 50 MB or less
+        nonRoot:
+          type: boolean
+          description: Container runs as non-root user
+        noShellEntrypoint:
+          type: boolean
+          description: Entrypoint does not invoke a shell
 
     ImageIndex:
       type: object

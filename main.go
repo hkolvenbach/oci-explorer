@@ -20,10 +20,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/hkolvenbach/oci-explorer/badge"
 	"github.com/hkolvenbach/oci-explorer/cache"
 	"github.com/hkolvenbach/oci-explorer/docshandler"
 	"github.com/hkolvenbach/oci-explorer/registry"
 	"github.com/hkolvenbach/oci-explorer/scanner"
+	"github.com/hkolvenbach/oci-explorer/score"
 )
 
 //go:embed web/dist/*
@@ -79,6 +81,12 @@ type APIResponse struct {
 	Data     interface{} `json:"data,omitempty"`
 	Error    string      `json:"error,omitempty"`
 	CachedAt string      `json:"cachedAt,omitempty"`
+}
+
+// ImageInfoWithScore wraps ImageInfo with the computed supply chain score.
+type ImageInfoWithScore struct {
+	*registry.ImageInfo
+	Score score.Result `json:"score"`
 }
 
 // logVerbose logs at debug level (visible only in verbose mode).
@@ -227,6 +235,12 @@ func main() {
 		logVerbose("  - GET /api/metrics")
 	}
 
+	// Badge routes
+	r.HandleFunc("/badge/score.svg", handleBadgeSVG).Methods("GET")
+	r.HandleFunc("/badge/score.json", handleBadgeJSON).Methods("GET")
+	logVerbose("  - GET /badge/score.svg")
+	logVerbose("  - GET /badge/score.json")
+
 	// Serve documentation files at /docs/
 	logVerbose("Setting up documentation file server...")
 	logVerbose("  - GET /docs/")
@@ -328,45 +342,23 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 	slog.Info("inspect", "image", imageRef)
 	slog.Debug("inspect", "image", imageRef, "remote_addr", r.RemoteAddr)
 
-	if cacheStore != nil {
-		digest, err := registry.ResolveDigest(imageRef)
-		if err == nil {
-			result, err := cacheStore.GetOrCompute(r.Context(), "inspect/"+digest, inspectCacheTTL, func() ([]byte, error) {
-				client := registry.NewClient()
-				info, err := client.InspectImage(imageRef)
-				if err != nil {
-					return nil, err
-				}
-				return json.Marshal(APIResponse{Success: true, Data: info})
-			})
-			if err == nil {
-				w.Header().Set("Content-Type", "application/json")
-				if result.FromCache {
-					w.Header().Set("X-Cache", "HIT")
-				} else {
-					w.Header().Set("X-Cache", "MISS")
-				}
-				writeBytes(w, result.Data)
-				return
-			}
-			slog.Warn("cache path failed, falling through", "image", imageRef, "error", err)
-		} else {
-			slog.Warn("digest resolution failed, falling through", "image", imageRef, "error", err)
-		}
-	}
-
-	// Uncached path (cache disabled or cache error)
-	client := registry.NewClient()
-	imageInfo, err := client.InspectImage(imageRef)
+	ir, err := inspectImage(r, imageRef)
 	if err != nil {
 		slog.Error("inspect failed", "image", imageRef, "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	slog.Debug("inspect complete", "image", imageRef)
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, APIResponse{Success: true, Data: imageInfo})
+	if ir.Cached {
+		if ir.FromCache {
+			w.Header().Set("X-Cache", "HIT")
+		} else {
+			w.Header().Set("X-Cache", "MISS")
+		}
+	}
+	sr := score.Compute(ir.Info.Referrers, ir.Info.Manifest, ir.Info.Config)
+	writeJSON(w, APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: ir.Info, Score: sr}})
 }
 
 func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
@@ -537,6 +529,106 @@ func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 	logVerbose("Found %d matching tags for %s", len(result.Tags), imageRef)
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{Success: true, Data: result})
+}
+
+// inspectResult holds the outcome of inspectImage, including cache metadata.
+type inspectResult struct {
+	Info      *registry.ImageInfo
+	FromCache bool // true if the data was served from cache
+	Cached    bool // true if cache was involved at all (hit or miss)
+}
+
+// inspectImage fetches image info using the cache if available, falling back to
+// a direct registry call.
+func inspectImage(r *http.Request, imageRef string) (*inspectResult, error) {
+	if cacheStore != nil {
+		digest, err := registry.ResolveDigest(imageRef)
+		if err == nil {
+			result, err := cacheStore.GetOrCompute(r.Context(), "inspect/"+digest, inspectCacheTTL, func() ([]byte, error) {
+				client := registry.NewClient()
+				info, err := client.InspectImage(imageRef)
+				if err != nil {
+					return nil, err
+				}
+				sr := score.Compute(info.Referrers, info.Manifest, info.Config)
+				return json.Marshal(APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: info, Score: sr}})
+			})
+			if err == nil {
+				var apiResp struct {
+					Data registry.ImageInfo `json:"data"`
+				}
+				if err := json.Unmarshal(result.Data, &apiResp); err == nil {
+					return &inspectResult{Info: &apiResp.Data, FromCache: result.FromCache, Cached: true}, nil
+				}
+			}
+		}
+	}
+
+	client := registry.NewClient()
+	info, err := client.InspectImage(imageRef)
+	if err != nil {
+		return nil, err
+	}
+	return &inspectResult{Info: info}, nil
+}
+
+func computeScoreForImage(r *http.Request, imageRef string) (*score.Result, error) {
+	ir, err := inspectImage(r, imageRef)
+	if err != nil {
+		return nil, err
+	}
+	sr := score.Compute(ir.Info.Referrers, ir.Info.Manifest, ir.Info.Config)
+	return &sr, nil
+}
+
+func handleBadgeSVG(w http.ResponseWriter, r *http.Request) {
+	imageRef := r.URL.Query().Get("image")
+	if imageRef == "" {
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorSVG("error"))
+		return
+	}
+
+	countRequest("badge")
+
+	result, err := computeScoreForImage(r, imageRef)
+	if err != nil {
+		slog.Warn("badge score failed", "image", imageRef, "error", err)
+		w.Header().Set("Content-Type", "image/svg+xml")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorSVG("not found"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/svg+xml")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	writeBytes(w, badge.RenderSVG(*result))
+}
+
+func handleBadgeJSON(w http.ResponseWriter, r *http.Request) {
+	imageRef := r.URL.Query().Get("image")
+	if imageRef == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorJSON("error"))
+		return
+	}
+
+	countRequest("badge")
+
+	result, err := computeScoreForImage(r, imageRef)
+	if err != nil {
+		slog.Warn("badge score failed", "image", imageRef, "error", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-cache")
+		writeBytes(w, badge.RenderErrorJSON("not found"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	writeBytes(w, badge.RenderJSON(*result))
 }
 
 func handleScanImage(w http.ResponseWriter, r *http.Request) {

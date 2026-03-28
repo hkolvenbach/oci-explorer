@@ -35,6 +35,7 @@ Visualize OCI container image structures including layers, manifests, referrers,
 - **Matching Tags** - Discover which tags in a repository point to the same digest. For Docker Hub and GCR/Artifact Registry, shows all aliases (e.g., `alpine:latest` → also `3.23.3`, `3.23`, `3`) with the current tag highlighted. Unsupported registries show an explanatory note.
 - **Tag Listing** - Browse all tags for a repository with clickable navigation to inspect any tag.
 - **Supply Chain Security Score** - At-a-glance 0–10 score with animated ring and letter grade. Evaluates supply chain artifact presence: signatures, SBOMs, attestations, VEX documents, minimal base image characteristics (few layers, small size, non-root user, no shell entrypoint). Expandable detail panel shows each criterion with pass/fail status.
+- **Embeddable Badges** - Shields.io-compatible badge endpoints for embedding supply chain scores in GitHub READMEs and websites. Self-rendered SVG (`/badge/score.svg`) and shields.io endpoint JSON (`/badge/score.json`) with the OCI Explorer icon.
 - **Graph View** - Interactive directed graph with pan, zoom, and fit-to-view controls. Shows the full image structure: image index, platform manifests, configs, layers, and all referrer artifacts (SBOMs, VEX, attestations, signatures) with color-coded nodes and relationship edges.
 - **Copyable Digests** - Click any SHA-256 digest in the UI to copy the full value to the clipboard.
 - **Mobile Responsive** - Adaptive layout with stacked columns on small screens and side-by-side panels on desktop.
@@ -114,6 +115,20 @@ Interactive graph visualization of the full image structure with SBOMs, VEX, att
 
 ![Graph view](docs/screenshots/graph.png)
 
+### Embeddable Badges
+
+Supply chain score badges for embedding in READMEs and websites:
+
+![supply chain score](docs/screenshots/badge-score-a.svg) ![supply chain score error](docs/screenshots/badge-score-error.svg)
+
+```markdown
+<!-- Self-rendered SVG (direct) -->
+![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+
+<!-- Via shields.io (supports style overrides like ?style=for-the-badge) -->
+![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+```
+
 ### Command Line Flags
 
 | Flag | Short | Default | Description |
@@ -174,7 +189,8 @@ Inspect an OCI image and return its full structure.
     "manifest": { ... },
     "config": { ... },
     "tags": ["latest", "1.25", "1.25.3"],
-    "referrers": [ ... ]
+    "referrers": [ ... ],
+    "score": { "score": 8, "maxScore": 10, "grade": "A", "color": "4ade80" }
   }
 }
 ```
@@ -244,6 +260,45 @@ Scan a container image for vulnerabilities using Trivy (must be installed locall
 ### GET /api/health
 
 Health check endpoint.
+
+### GET /badge/score.svg
+
+Embeddable supply chain score badge as a self-rendered SVG. Returns a shields.io flat-style badge with the OCI Explorer icon and letter grade (A+ through D).
+
+**Query Parameters:**
+- `image` (required) - Image reference (e.g., `alpine:latest`, `ghcr.io/org/repo:tag`)
+
+**Response:** `image/svg+xml` with `Cache-Control: public, max-age=86400`
+
+**Embed in Markdown:**
+```markdown
+![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+```
+
+### GET /badge/score.json
+
+Supply chain score as a [shields.io endpoint badge](https://shields.io/badges/endpoint-badge) JSON response. Includes the OCI Explorer logo via `logoSvg`.
+
+**Query Parameters:**
+- `image` (required) - Image reference
+
+**Response:**
+```json
+{
+  "schemaVersion": 1,
+  "label": "supply chain score",
+  "message": "A",
+  "color": "4ade80",
+  "logoSvg": "<svg>...</svg>"
+}
+```
+
+**Embed via shields.io (supports style overrides):**
+```markdown
+![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+```
+
+Both badge endpoints return a valid gray error badge (never a broken image) when the image parameter is missing or the image cannot be found.
 
 ## Usage Examples
 
@@ -379,9 +434,15 @@ oci-explorer/
 │   ├── screenshots/     # Browser screenshots for README
 │   ├── api.md           # API reference (served at /docs/)
 │   └── openapi.yaml     # OpenAPI specification (served at /api/openapi.yaml)
+├── badge/               # Shields.io badge rendering (SVG + JSON)
+│   ├── badge.go         # RenderSVG, RenderJSON, error badge functions
+│   └── badge_test.go
 ├── docshandler/         # Documentation HTTP handlers (extracted from main.go)
 ├── registry/            # OCI registry client using go-containerregistry
 │   └── testdata/        # Test fixtures (Alpine, Kairos, VEX sample data)
+├── score/               # Supply chain security score computation
+│   ├── score.go         # Compute(referrers, manifest, config) → Result
+│   └── score_test.go
 ├── scanner/             # Trivy vulnerability scanner (subprocess-based)
 ├── scripts/             # Test and verification scripts
 ├── tools/
