@@ -55,15 +55,23 @@ export async function scanImage(imageRef: string, force = false): Promise<ScanRe
   };
 }
 
-/** Check if cached scan results exist without triggering a Trivy scan. Returns null on miss. */
+/** Check if cached scan results exist without triggering a Trivy scan. Returns null on miss or timeout. */
 export async function peekScan(imageRef: string): Promise<ScanResponse | null> {
-  const url = `/api/scan?image=${encodeURIComponent(imageRef)}&peek=1`;
-  const response = await fetch(url);
-  if (!response.ok) return null;
-  const json: APIResponse<ScanResult> = await response.json();
-  if (!json.success) return null;
-  return {
-    result: json.data as ScanResult,
-    cachedAt: response.headers.get('X-Cached-At') || undefined,
-  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+  try {
+    const url = `/api/scan?image=${encodeURIComponent(imageRef)}&peek=1`;
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return null;
+    const json: APIResponse<ScanResult> = await response.json();
+    if (!json.success) return null;
+    return {
+      result: json.data as ScanResult,
+      cachedAt: response.headers.get('X-Cached-At') || undefined,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }

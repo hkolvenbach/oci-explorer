@@ -25,17 +25,25 @@
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   }
 
-  // On mount, check if cached scan results exist (non-blocking, never triggers Trivy)
+  // Track which image the current peek is for to discard stale responses
+  let peekGeneration = 0;
+
+  // On mount or image change, reset state and check for cached scan results
   $effect(() => {
     const imageRef = data.repository + (data.tag ? ':' + data.tag : '@' + data.digest);
+    const gen = ++peekGeneration;
+    scanResult = null;
+    scanCachedAt = undefined;
+    scanError = '';
     isPeeking = true;
     api.peekScan(imageRef).then((cached) => {
-      if (cached && !scanResult) {
+      if (gen !== peekGeneration) return; // stale response from previous image
+      if (cached) {
         scanResult = cached.result;
         scanCachedAt = cached.cachedAt;
       }
     }).finally(() => {
-      isPeeking = false;
+      if (gen === peekGeneration) isPeeking = false;
     });
   });
 
@@ -185,7 +193,7 @@
       {:else if isScanning}
         <div class="w-5 h-5 border-2 border-orange-400 border-t-transparent rounded-full animate-spin"></div>
       {:else if isPeeking}
-        <!-- brief loading while checking cache, prevents Scan button flash -->
+        <div class="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin"></div>
       {:else if scanResult}
         <div class="flex items-center gap-2">
           {#if scanCachedAt}
