@@ -83,6 +83,12 @@ type APIResponse struct {
 	CachedAt string      `json:"cachedAt,omitempty"`
 }
 
+// ImageInfoWithScore wraps ImageInfo with the computed supply chain score.
+type ImageInfoWithScore struct {
+	*registry.ImageInfo
+	Score score.Result `json:"score"`
+}
+
 // logVerbose logs at debug level (visible only in verbose mode).
 func logVerbose(format string, args ...interface{}) {
 	slog.Debug(fmt.Sprintf(format, args...))
@@ -345,7 +351,8 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return nil, err
 				}
-				return json.Marshal(APIResponse{Success: true, Data: info})
+				sr := score.Compute(info.Referrers, info.Manifest, info.Config)
+				return json.Marshal(APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: info, Score: sr}})
 			})
 			if err == nil {
 				w.Header().Set("Content-Type", "application/json")
@@ -373,8 +380,9 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Debug("inspect complete", "image", imageRef)
+	sr := score.Compute(imageInfo.Referrers, imageInfo.Manifest, imageInfo.Config)
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, APIResponse{Success: true, Data: imageInfo})
+	writeJSON(w, APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: imageInfo, Score: sr}})
 }
 
 func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
