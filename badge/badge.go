@@ -18,7 +18,21 @@ type ShieldsResponse struct {
 	IsError       bool   `json:"isError,omitempty"`
 }
 
-const faviconSVG = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='#f97316'/><path d='M16 6l-9 4.5v11L16 26l9-4.5v-11L16 6z' fill='none' stroke='white' stroke-width='1.5' stroke-linejoin='round'/><path d='M7 10.5L16 15l9-4.5M16 15v11' fill='none' stroke='white' stroke-width='1.5' stroke-linejoin='round'/></svg>`
+const (
+	// badgeLabel is the label text shown on all badges.
+	badgeLabel = "supply chain score"
+
+	// faviconSVG is the OCI Explorer icon for the shields.io JSON logoSvg field.
+	// Canonical source: web/public/favicon.svg
+	faviconSVG = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='#f97316'/><path d='M16 6l-9 4.5v11L16 26l9-4.5v-11L16 6z' fill='none' stroke='white' stroke-width='1.5' stroke-linejoin='round'/><path d='M7 10.5L16 15l9-4.5M16 15v11' fill='none' stroke='white' stroke-width='1.5' stroke-linejoin='round'/></svg>`
+
+	// faviconPathData contains the SVG path elements from the favicon, inlined
+	// into the badge SVG template at 14x14 (scale 0.4375 of the 32x32 viewBox).
+	// Canonical source: web/public/favicon.svg
+	faviconPathData = `<rect width="32" height="32" rx="6" fill="#f97316"/>` +
+		`<path d="M16 6l-9 4.5v11L16 26l9-4.5v-11L16 6z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>` +
+		`<path d="M7 10.5L16 15l9-4.5M16 15v11" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>`
+)
 
 // badgeTmpl is a Shields.io flat-style SVG badge with an embedded favicon icon.
 var badgeTmpl = template.Must(template.New("badge").Parse(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{{.TotalWidth}}" height="20" role="img" aria-label="{{.AriaLabel}}">
@@ -41,11 +55,7 @@ var badgeTmpl = template.Must(template.New("badge").Parse(`<svg xmlns="http://ww
 <text x="{{.ValueTextX}}0" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="{{.ValueTextLen}}0" lengthAdjust="spacing">{{.Message}}</text>
 <text x="{{.ValueTextX}}0" y="140" transform="scale(.1)" textLength="{{.ValueTextLen}}0" lengthAdjust="spacing">{{.Message}}</text>
 </g>
-<g transform="translate(5,3) scale(0.4375)">
-<rect width="32" height="32" rx="6" fill="#f97316"/>
-<path d="M16 6l-9 4.5v11L16 26l9-4.5v-11L16 6z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
-<path d="M7 10.5L16 15l9-4.5M16 15v11" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round"/>
-</g>
+<g transform="translate(5,3) scale(0.4375)">` + faviconPathData + `</g>
 </svg>`))
 
 // errorBadgeTmpl renders a gray error badge.
@@ -132,7 +142,7 @@ func computeBadgeData(label, message, color string) badgeData {
 	valueCenterX := labelWidth + valueWidth/2
 
 	return badgeData{
-		AriaLabel:    "supply chain score: " + message,
+		AriaLabel:    badgeLabel + ": " + message,
 		Label:        label,
 		Message:      message,
 		Color:        color,
@@ -175,7 +185,7 @@ func computeErrorBadgeData(label, message string) badgeData {
 
 // RenderSVG produces a Shields.io flat-style SVG badge for the given score result.
 func RenderSVG(result score.Result) []byte {
-	data := computeBadgeData("supply chain score", result.Grade, result.Color)
+	data := computeBadgeData(badgeLabel, result.Grade, result.Color)
 	var buf bytes.Buffer
 	if err := badgeTmpl.Execute(&buf, data); err != nil {
 		return RenderErrorSVG("render error")
@@ -185,7 +195,7 @@ func RenderSVG(result score.Result) []byte {
 
 // RenderErrorSVG produces a gray error SVG badge with the given message.
 func RenderErrorSVG(message string) []byte {
-	data := computeErrorBadgeData("supply chain score", message)
+	data := computeErrorBadgeData(badgeLabel, message)
 	var buf bytes.Buffer
 	if err := errorBadgeTmpl.Execute(&buf, data); err != nil {
 		return []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20"><rect width="100" height="20" fill="#9f9f9f"/></svg>`)
@@ -197,7 +207,7 @@ func RenderErrorSVG(message string) []byte {
 func RenderJSON(result score.Result) []byte {
 	resp := ShieldsResponse{
 		SchemaVersion: 1,
-		Label:         "supply chain score",
+		Label:         badgeLabel,
 		Message:       result.Grade,
 		Color:         result.Color,
 		LogoSVG:       faviconSVG,
@@ -217,7 +227,7 @@ func RenderErrorJSON(message string) []byte {
 func renderErrorJSONBytes(message string) []byte {
 	resp := ShieldsResponse{
 		SchemaVersion: 1,
-		Label:         "supply chain score",
+		Label:         badgeLabel,
 		Message:       message,
 		Color:         "gray",
 		IsError:       true,
