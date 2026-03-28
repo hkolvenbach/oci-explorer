@@ -2,13 +2,31 @@
 
 Visualize OCI container image structures including layers, manifests, referrers, SBOMs, attestations, and other supply chain artifacts. Built with Go and Svelte.
 
-![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8) ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00) ![Trivy](https://img.shields.io/badge/Trivy-0.69+-1904DA) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8) ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00) ![Trivy](https://img.shields.io/badge/Trivy-0.69+-1904DA) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg) ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
 
 ---
 
 <h3><img src="web/public/favicon.svg" width="22" height="22" align="absmiddle" alt="logo" />&nbsp; Try it live at <a href="https://ociexplorer.dev">ociexplorer.dev</a></h3>
 
 <sub>You can also [run it locally](#quick-start) for private registries and vulnerability scanning.</sub>
+
+---
+
+### Add a supply chain score badge to your project
+
+Show the supply chain security score of any public container image in your README:
+
+```markdown
+![supply chain score](https://ociexplorer.dev/badge/score.svg?image=YOUR_IMAGE:TAG)
+```
+
+Or use the [shields.io endpoint](https://shields.io/badges/endpoint-badge) for style customization:
+
+```markdown
+![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=YOUR_IMAGE:TAG)
+```
+
+Replace `YOUR_IMAGE:TAG` with any public image reference (e.g., `ghcr.io/org/repo:latest`, `alpine:3.21`).
 
 ---
 
