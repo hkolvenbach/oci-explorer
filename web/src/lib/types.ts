@@ -97,6 +97,14 @@ export interface ImageInfo {
   tags: string[];
   referrers: Referrer[];
   platformDigest?: string;
+  score?: ScoreResult;
+}
+
+export interface ScoreResult {
+  score: number;
+  maxScore: number;
+  grade: string;
+  color: string;
 }
 
 export interface APIResponse<T = unknown> {
