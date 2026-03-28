@@ -219,6 +219,7 @@ func renderErrorJSONBytes(message string) []byte {
 		SchemaVersion: 1,
 		Label:         "supply chain score",
 		Message:       message,
+		Color:         "gray",
 		IsError:       true,
 	}
 	out, _ := json.Marshal(resp)

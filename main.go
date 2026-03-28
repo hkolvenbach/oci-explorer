@@ -567,7 +567,8 @@ func computeScoreForImage(r *http.Request, imageRef string) (*score.Result, erro
 				if err != nil {
 					return nil, err
 				}
-				return json.Marshal(APIResponse{Success: true, Data: imgInfo})
+				sr := score.Compute(imgInfo.Referrers, imgInfo.Manifest, imgInfo.Config)
+				return json.Marshal(APIResponse{Success: true, Data: ImageInfoWithScore{ImageInfo: imgInfo, Score: sr}})
 			})
 			if err == nil {
 				var apiResp struct {
