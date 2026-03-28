@@ -38,7 +38,7 @@
     const q = new URLSearchParams(window.location.search).get('q');
     if (q) {
       appState.searchQuery = q;
-      doInspect(q);
+      doInspect(q, true);
     } else {
       appState.searchQuery = 'alpine:latest';
       appState.currentData = null;
@@ -49,18 +49,17 @@
   // Trigger the initial fetch after mount. onMount (not $effect) because this
   // is a one-time side-effect — no reactive dependencies should be tracked.
   onMount(() => {
-    if (initialQ) doInspect(initialQ);
+    if (initialQ) doInspect(initialQ, true);
   });
 
   let inspectGeneration = 0;
 
-  async function doInspect(imageRefOverride?: string) {
+  async function doInspect(imageRefOverride?: string, skipURLUpdate = false) {
     const imageRef = (imageRefOverride ?? appState.searchQuery).trim();
     if (!imageRef) return;
     if (imageRefOverride) appState.searchQuery = imageRef;
 
     const gen = ++inspectGeneration;
-    const skipURLUpdate = !!imageRefOverride;
 
     appState.selectedPlatform = 'all';
     appState.platformDigestMap = {};
