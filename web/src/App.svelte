@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { appState, buildPlatformDigestMap, getFilteredReferrers, getSelectedPlatformConfig, getSelectedPlatformName } from './lib/state.svelte';
   import type { MatchingTagsResult } from './lib/types';
   import * as api from './lib/api';
@@ -28,11 +29,16 @@
     }).catch(() => {});
   });
 
+  // Synchronously initialise searchQuery from URL before first render
+  // so the search bar never flashes the default placeholder.
+  const initialQ = new URLSearchParams(window.location.search).get('q');
+  if (initialQ) appState.searchQuery = initialQ;
+
   function loadFromURL() {
     const q = new URLSearchParams(window.location.search).get('q');
     if (q) {
       appState.searchQuery = q;
-      doInspect(true);
+      doInspect(q);
     } else {
       appState.searchQuery = 'alpine:latest';
       appState.currentData = null;
@@ -40,22 +46,33 @@
     }
   }
 
-  // Read ?q= from URL on mount
-  $effect(() => { loadFromURL(); });
+  // Trigger the initial fetch after mount. onMount (not $effect) because this
+  // is a one-time side-effect — no reactive dependencies should be tracked.
+  onMount(() => {
+    if (initialQ) doInspect(initialQ);
+  });
 
-  async function doInspect(skipURLUpdate = false) {
-    const imageRef = appState.searchQuery.trim();
+  let inspectGeneration = 0;
+
+  async function doInspect(imageRefOverride?: string) {
+    const imageRef = (imageRefOverride ?? appState.searchQuery).trim();
     if (!imageRef) return;
+    if (imageRefOverride) appState.searchQuery = imageRef;
+
+    const gen = ++inspectGeneration;
+    const skipURLUpdate = !!imageRefOverride;
 
     appState.selectedPlatform = 'all';
     appState.platformDigestMap = {};
     appState.collapseStates = {};
+    appState.viewToggles = { config: false, annotations: false, imageIndex: false };
     appState.isLoading = true;
     appState.error = '';
     matchingTags = null;
 
     try {
       const data = await api.inspectImage(imageRef);
+      if (gen !== inspectGeneration) return;
       appState.currentData = data;
       buildPlatformDigestMap(data);
       if (!skipURLUpdate) {
@@ -63,21 +80,22 @@
         url.searchParams.set('q', imageRef);
         history.pushState({ image: imageRef }, '', url.toString());
       }
-      // Fetch matching tags in background (non-blocking)
       api.fetchMatchingTags(imageRef).then((result) => {
+        if (gen !== inspectGeneration) return;
         matchingTags = result;
       }).catch(() => {});
     } catch (err) {
+      if (gen !== inspectGeneration) return;
       appState.error = (err as Error).message;
       appState.currentData = null;
     } finally {
-      appState.isLoading = false;
+      if (gen === inspectGeneration) appState.isLoading = false;
     }
   }
 
   function quickInspect(image: string) {
     appState.searchQuery = image;
-    doInspect();
+    doInspect(image);
   }
 
   let hasMultiplePlatforms = $derived(Object.keys(appState.platformDigestMap).length > 1);
@@ -102,41 +120,43 @@
 
     <div class="relative">
       {#if appState.currentData}
-        {#if appState.currentView === 'graph'}
-          <GraphView data={appState.currentData} />
-        {:else}
-          <ImageSummary data={appState.currentData} />
+        {#key appState.currentData.digest}
+          {#if appState.currentView === 'graph'}
+            <GraphView data={appState.currentData} />
+          {:else}
+            <ImageSummary data={appState.currentData} />
 
-          <ScanSection data={appState.currentData} />
+            <ScanSection data={appState.currentData} />
 
-          {#if hasMultiplePlatforms}
-            <PlatformFilter data={appState.currentData} />
+            {#if hasMultiplePlatforms}
+              <PlatformFilter data={appState.currentData} />
+            {/if}
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <!-- Left Column -->
+              <div>
+                {#if appState.currentData.imageIndex}
+                  <ImageIndexSection imageIndex={appState.currentData.imageIndex} />
+                {/if}
+                <ReferrersSection referrers={filteredReferrers} totalCount={appState.currentData.referrers?.length || 0} />
+                {#if appState.currentData.manifest?.annotations}
+                  <AnnotationsSection annotations={appState.currentData.manifest.annotations} />
+                {/if}
+              </div>
+
+              <!-- Right Column -->
+              <div>
+                {#if selectedConfig}
+                  <ConfigSection config={selectedConfig} platformName={selectedPlatformName} />
+                {/if}
+                {#if appState.currentData.manifest}
+                  <LayersSection layers={appState.currentData.manifest.layers} />
+                {/if}
+                <TagsSection tags={appState.currentData.tags || []} {matchingTags} oninspect={quickInspect} />
+              </div>
+            </div>
           {/if}
-
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Left Column -->
-            <div>
-              {#if appState.currentData.imageIndex}
-                <ImageIndexSection imageIndex={appState.currentData.imageIndex} />
-              {/if}
-              <ReferrersSection referrers={filteredReferrers} totalCount={appState.currentData.referrers?.length || 0} />
-              {#if appState.currentData.manifest?.annotations}
-                <AnnotationsSection annotations={appState.currentData.manifest.annotations} />
-              {/if}
-            </div>
-
-            <!-- Right Column -->
-            <div>
-              {#if selectedConfig}
-                <ConfigSection config={selectedConfig} platformName={selectedPlatformName} />
-              {/if}
-              {#if appState.currentData.manifest}
-                <LayersSection layers={appState.currentData.manifest.layers} />
-              {/if}
-              <TagsSection tags={appState.currentData.tags || []} {matchingTags} oninspect={quickInspect} />
-            </div>
-          </div>
-        {/if}
+        {/key}
       {/if}
 
       <LoadingOverlay visible={appState.isLoading} />
