@@ -105,3 +105,22 @@ jobs:
           name: vex-document-preview
           path: vex.json
           retention-days: 30
+
+  integration-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Start docker-compose stack
+        run: docker compose -f docker-compose.dev.yml up --build -d
+
+      - name: Run cache integration tests
+        run: ./scripts/test-cache.sh
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down -v
