@@ -141,10 +141,3 @@ func TestRenderErrorJSON(t *testing.T) {
 		t.Errorf("isError should be true")
 	}
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
