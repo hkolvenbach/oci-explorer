@@ -17,11 +17,11 @@ OCI Explorer computes a supply chain security score (0-10, letter grade A+ throu
 
 | Grade | Score | Color (hex) |
 |-------|-------|-------------|
-| A+ | 10 | 22c55e |
-| A | >= 8 | 4ade80 |
-| B | >= 6 | eab308 |
-| C | >= 4 | fb923c |
-| D | < 4 | f87171 |
+| A+ | 10 | #22c55e |
+| A | >= 8 | #4ade80 |
+| B | >= 6 | #eab308 |
+| C | >= 4 | #fb923c |
+| D | < 4 | #f87171 |
 
 ### Scoring Criteria
 
@@ -191,6 +191,56 @@ All errors return a valid badge — never a 500 or broken image.
 |-----------|-----|------|
 | Missing/invalid `image` param | gray `supply chain score \| error` | `{"isError": true, "message": "error", "color": "gray"}` |
 | Registry unreachable / image not found | gray `supply chain score \| not found` | `{"isError": true, "message": "not found", "color": "gray"}` |
+
+## Testing
+
+### `score/score_test.go` — Unit Tests
+
+Table-driven tests (matching existing project style) that verify scoring against known image shapes:
+
+| Test case | Referrers | Base image traits | Expected score | Expected grade |
+|-----------|-----------|-------------------|----------------|----------------|
+| Perfect score | sig + att + sbom + vex | few layers, small, non-root, no shell | 10 | A+ |
+| Artifacts only | sig + att + sbom + vex | none | 8 | A |
+| Minimal base only | none | all 4 traits | 2 | D |
+| Partial artifacts | sig + sbom | few layers, small | 5 | C |
+| Empty image | none | none | 0 | D |
+| Single signature | sig | none | 2 | D |
+| Threshold boundary (B) | sig + att + sbom | none | 6 | B |
+| Threshold boundary (A) | sig + att + sbom + vex | none | 8 | A |
+
+Tests construct `registry.Referrer`, `registry.Manifest`, and `registry.ImageConfig` structs directly — no registry calls.
+
+### `badge/badge_test.go` — Rendering Tests
+
+**SVG tests:**
+- Verify `RenderSVG` returns valid SVG (starts with `<svg`, contains `</svg>`)
+- Verify grade text appears in SVG output for each grade level
+- Verify correct color hex appears for each grade
+- Verify the OCI Explorer favicon SVG is embedded
+- Verify `aria-label` attribute is set correctly
+
+**JSON tests:**
+- Verify `RenderJSON` returns valid JSON matching shields.io schema
+- Verify `schemaVersion` is always `1`
+- Verify `label` is always `"supply chain score"`
+- Verify `message` matches the grade
+- Verify `color` matches the grade color
+- Verify `logoSvg` contains the favicon SVG
+
+**Error badge tests:**
+- Verify error SVG renders with gray color and "error" / "not found" message
+- Verify error JSON sets `isError: true`
+
+### Integration Tests
+
+Test the full badge HTTP handler flow using `httptest.NewServer`:
+- `GET /badge/score.svg?image=alpine:latest` returns `Content-Type: image/svg+xml` with valid SVG
+- `GET /badge/score.json?image=alpine:latest` returns `Content-Type: application/json` with valid shields.io JSON
+- Missing `image` param returns error badge (not 500)
+- `Cache-Control` header is set on SVG responses
+
+These tests use a mock registry client to avoid network calls in CI.
 
 ## URL Structure
 
