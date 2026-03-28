@@ -66,10 +66,10 @@ func getRequestCounts() map[string]uint64 {
 	return cp
 }
 
-// Cache TTLs per endpoint type. All keys are SHA256 digest-based (immutable);
+// Cache TTLs per endpoint type. All keys are SHA256 digest-based;
 // the tag-to-digest resolution (ResolveDigest) runs on every request and is never cached.
 const (
-	inspectCacheTTL = 30 * 24 * time.Hour // 30 days -- immutable for a given digest
+	inspectCacheTTL = 1 * time.Hour       // 1 hour -- referrer list can grow after image push
 	scanCacheTTL    = 24 * time.Hour      // 24 hours -- Trivy DB updates daily
 	sbomCacheTTL    = 30 * 24 * time.Hour // 30 days -- content-addressed, immutable
 	vexCacheTTL     = 30 * 24 * time.Hour // 30 days -- content-addressed, immutable
