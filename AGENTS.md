@@ -229,6 +229,20 @@ Run `make upgrade` regularly when adding features. It updates Go modules, npm pa
 - Use `_` for intentionally ignored errors only with a comment
 - Return errors from functions, don't just log them
 
+### CI/CD Error Handling
+
+**Never suppress errors in CI workflows.** These patterns are banned:
+
+- `command || true` — masks real failures. If a command can legitimately fail, handle the exit code explicitly (e.g., `command; rc=$?; if [ "$rc" -ne 0 ] && [ "$rc" -ne 3 ]; then exit 1; fi`)
+- `command 2>/dev/null` — hides diagnostic output that is critical for debugging CI failures
+- `if command -v tool &>/dev/null` — if a tool is required, install it explicitly and let the step fail if installation fails
+
+**Correct patterns:**
+- `grep pattern || true` is only acceptable inside `{ grep pattern || true; }` (subshell) when the result is piped and empty output is a valid outcome
+- `govulncheck` exits 3 when it finds vulnerabilities — handle this specific exit code, not all errors
+- Every CI step should fail loudly on unexpected errors. Use `set -euo pipefail` at the top of multi-line run blocks
+- Validate outputs: if a step generates a file that downstream steps depend on, verify the file exists and has expected content before proceeding
+
 ### Testing
 
 - Write tests for new functionality
