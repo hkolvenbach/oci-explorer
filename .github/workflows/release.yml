@@ -336,9 +336,6 @@ jobs:
           path: vex.json
           retention-days: 90
 
-      - name: Install verification tools
-        if: inputs.dry-run != true
-
       - name: Verify signatures and attestations (smoke test)
         if: inputs.dry-run != true
         run: |
