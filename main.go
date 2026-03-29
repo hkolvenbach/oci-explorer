@@ -720,14 +720,18 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 					writeBytes(w, result.Data)
 					return
 				}
-				slog.Warn("cache path failed, falling through", "image", imageRef, "error", err)
+				// Return scan errors (e.g. timeout) immediately instead of
+			// falling through to a second scan attempt.
+			slog.Error("scan failed", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond), "error", err)
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
 			}
 		} else {
 			slog.Warn("digest resolution failed, falling through", "image", imageRef, "error", err)
 		}
 	}
 
-	// Force refresh or uncached path -- also store in cache if available
+	// Force refresh or uncached (no cache store configured) path
 	if stream {
 		handleScanStream(w, r, imageRef, start)
 		return
