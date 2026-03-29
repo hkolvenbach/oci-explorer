@@ -1,0 +1,106 @@
+name: Daily Vulnerability Check
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Daily at 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Trivy
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.3/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
+
+      - name: Scan latest image for vulnerabilities
+        id: scan
+        run: |
+          set -euo pipefail
+
+          IMAGE="ghcr.io/hkolvenbach/oci-explorer:latest"
+          echo "=== Scanning $IMAGE ==="
+
+          # Run Trivy scan
+          trivy image --format json --scanners vuln "$IMAGE" > trivy-report.json
+
+          # Extract fixable vulnerabilities (those with a FixedVersion)
+          FIXABLE=$(jq '[
+            .Results[]? |
+            .Vulnerabilities[]? |
+            select(.FixedVersion != null and .FixedVersion != "") |
+            {id: .VulnerabilityID, pkg: .PkgName, installed: .InstalledVersion, fixed: .FixedVersion, severity: .Severity}
+          ] | unique_by(.id + .pkg)' trivy-report.json)
+
+          FIXABLE_COUNT=$(echo "$FIXABLE" | jq 'length')
+          TOTAL=$(jq '[.Results[]?.Vulnerabilities[]?.VulnerabilityID] | unique | length' trivy-report.json)
+
+          echo "Total unique CVEs: $TOTAL"
+          echo "Fixable: $FIXABLE_COUNT"
+
+          echo "fixable_count=$FIXABLE_COUNT" >> "$GITHUB_OUTPUT"
+          echo "total_count=$TOTAL" >> "$GITHUB_OUTPUT"
+
+          # Build a markdown summary for the issue body
+          if [ "$FIXABLE_COUNT" -gt 0 ]; then
+            {
+              echo "## Fixable Vulnerabilities in \`$IMAGE\`"
+              echo ""
+              echo "Scanned on $(date -u +%Y-%m-%d). **$FIXABLE_COUNT fixable** out of $TOTAL total vulnerabilities."
+              echo ""
+              echo "| CVE | Severity | Package | Installed | Fixed |"
+              echo "|-----|----------|---------|-----------|-------|"
+              echo "$FIXABLE" | jq -r '.[] | "| \(.id) | \(.severity) | \(.pkg) | \(.installed) | \(.fixed) |"'
+              echo ""
+              echo "### Suggested actions"
+              echo ""
+              echo "Update the following in \`go.mod\`, \`Dockerfile\`, or \`Makefile\`:"
+              echo ""
+
+              # Check if any are Go stdlib (fixable by Go version bump)
+              GO_STDLIB=$(echo "$FIXABLE" | jq -r '[.[] | select(.pkg == "stdlib")] | length')
+              if [ "$GO_STDLIB" -gt 0 ]; then
+                FIXED_GO=$(echo "$FIXABLE" | jq -r '[.[] | select(.pkg == "stdlib") | .fixed] | unique | join(", ")')
+                echo "- **Go version**: bump to $FIXED_GO (fixes $GO_STDLIB stdlib CVEs)"
+              fi
+
+              # Check for Go module dependencies
+              GO_DEPS=$(echo "$FIXABLE" | jq -r '[.[] | select(.pkg != "stdlib" and (.pkg | contains("/")))] | unique_by(.pkg) | .[] | "- **\(.pkg)**: upgrade to \(.fixed) (fixes \(.id))"')
+              if [ -n "$GO_DEPS" ]; then
+                echo "$GO_DEPS"
+              fi
+
+              # Check for Trivy binary CVEs
+              TRIVY_CVES=$(echo "$FIXABLE" | jq -r '[.[] | select(.pkg | contains("google.golang.org") or contains("go-git"))] | length')
+              if [ "$TRIVY_CVES" -gt 0 ]; then
+                echo "- **Trivy**: check for newer Trivy release that bundles fixed dependencies"
+              fi
+            } > issue-body.md
+          else
+            echo "No fixable vulnerabilities found." > issue-body.md
+          fi
+
+      - name: Create or update issue
+        if: fromJSON(steps.scan.outputs.fixable_count) > 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          TITLE="vuln: $(date -u +%Y-%m-%d) — ${{ steps.scan.outputs.fixable_count }} fixable vulnerabilities in latest image"
+
+          # Close any previous vuln-check issues
+          EXISTING=$(gh issue list --label "vulnerability" --state open --json number --jq '.[].number')
+          for NUM in $EXISTING; do
+            gh issue close "$NUM" --comment "Superseded by new daily scan."
+          done
+
+          # Create new issue
+          gh issue create \
+            --title "$TITLE" \
+            --body-file issue-body.md \
+            --label "vulnerability"
