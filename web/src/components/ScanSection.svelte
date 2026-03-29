@@ -100,8 +100,10 @@
     startTimer();
 
     try {
-      scanStep = 'Scanning with Trivy...';
-      const scanResponse = await api.scanImage(imageRef, force);
+      scanStep = 'Starting scan...';
+      const scanResponse = await api.scanImageStream(imageRef, force, (msg) => {
+        scanStep = msg;
+      });
       const result = scanResponse.result;
       scanCachedAt = scanResponse.cachedAt;
 

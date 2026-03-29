@@ -55,6 +55,74 @@ export async function scanImage(imageRef: string, force = false): Promise<ScanRe
   };
 }
 
+/**
+ * Stream a Trivy scan via SSE. Calls onProgress with status messages,
+ * returns the final ScanResponse. Falls back to regular scanImage if
+ * the server returns JSON (cache hit).
+ */
+export async function scanImageStream(
+  imageRef: string,
+  force: boolean,
+  onProgress: (msg: string) => void,
+): Promise<ScanResponse> {
+  const url = `/api/scan?image=${encodeURIComponent(imageRef)}&stream=1${force ? '&force=1' : ''}`;
+  const response = await fetch(url);
+  const contentType = response.headers.get('Content-Type') || '';
+
+  // Cache hit — server returns JSON directly (no streaming)
+  if (contentType.includes('application/json')) {
+    const json: APIResponse<ScanResult> = await response.json();
+    if (!json.success) throw new Error(json.error || 'Scan failed');
+    return {
+      result: json.data as ScanResult,
+      cachedAt: response.headers.get('X-Cached-At') || undefined,
+    };
+  }
+
+  // SSE stream — parse events
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult: ScanResponse | null = null;
+  let streamError: string | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // Parse SSE events from buffer
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop()!; // keep incomplete event in buffer
+
+    for (const part of parts) {
+      let event = '';
+      let data = '';
+      for (const line of part.split('\n')) {
+        if (line.startsWith('event: ')) event = line.slice(7);
+        else if (line.startsWith('data: ')) data = line.slice(6);
+      }
+      if (!event || !data) continue;
+
+      if (event === 'progress') {
+        const parsed = JSON.parse(data);
+        onProgress(parsed.message);
+      } else if (event === 'result') {
+        const parsed: APIResponse<ScanResult> = JSON.parse(data);
+        if (!parsed.success) throw new Error(parsed.error || 'Scan failed');
+        finalResult = { result: parsed.data as ScanResult };
+      } else if (event === 'error') {
+        const parsed = JSON.parse(data);
+        streamError = parsed.error;
+      }
+    }
+  }
+
+  if (streamError) throw new Error(streamError);
+  if (!finalResult) throw new Error('Scan stream ended without result');
+  return finalResult;
+}
+
 /** Check if cached scan results exist without triggering a Trivy scan. Returns null on miss or timeout. */
 export async function peekScan(imageRef: string): Promise<ScanResponse | null> {
   const controller = new AbortController();

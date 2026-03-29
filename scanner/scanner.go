@@ -1,11 +1,14 @@
 package scanner
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -155,6 +158,106 @@ func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 
 	var report TrivyReport
 	if err := json.Unmarshal(output, &report); err != nil {
+		return nil, fmt.Errorf("failed to parse trivy output: %w", err)
+	}
+
+	result := processReport(report)
+	slog.Info("scan complete", "image", imageRef, "duration", duration.Round(time.Millisecond), "vulns", result.TotalCount, "targets", len(result.Targets))
+	return result, nil
+}
+
+// parseTrivyProgress extracts a human-readable status from a Trivy stderr line.
+// Returns empty string for lines that should be skipped (noise, progress bars).
+var reDetectedOS = regexp.MustCompile(`Detected OS\s+family="([^"]+)"\s+version="([^"]+)"`)
+var reDetecting = regexp.MustCompile(`\[([^\]]+)\] Detecting vulnerabilities`)
+var reLangFiles = regexp.MustCompile(`Number of language-specific files\s+num=(\d+)`)
+
+func parseTrivyProgress(line string) string {
+	switch {
+	case strings.Contains(line, "Need to update DB"):
+		return "Updating vulnerability database..."
+	case strings.Contains(line, "Downloading vulnerability DB"),
+		strings.Contains(line, "Downloading artifact"):
+		return "Downloading vulnerability database..."
+	case strings.Contains(line, "Artifact successfully downloaded"):
+		return "Vulnerability database updated"
+	case strings.Contains(line, "Vulnerability scanning is enabled"):
+		return "Starting vulnerability scan..."
+	case reDetectedOS.MatchString(line):
+		m := reDetectedOS.FindStringSubmatch(line)
+		return fmt.Sprintf("Detected OS: %s %s", m[1], m[2])
+	case reDetecting.MatchString(line):
+		m := reDetecting.FindStringSubmatch(line)
+		return fmt.Sprintf("Scanning %s packages...", m[1])
+	case reLangFiles.MatchString(line):
+		m := reLangFiles.FindStringSubmatch(line)
+		if m[1] == "0" {
+			return "No language-specific files found"
+		}
+		return fmt.Sprintf("Scanning %s language files...", m[1])
+	default:
+		return ""
+	}
+}
+
+// ScanImageStream is like ScanImage but calls onProgress with human-readable
+// status messages parsed from Trivy's stderr output.
+func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg string)) (*ScanResult, error) {
+	trivyPath, err := exec.LookPath("trivy")
+	if err != nil {
+		return nil, fmt.Errorf("trivy is not installed or not in PATH: %w", err)
+	}
+
+	select {
+	case scanSem <- struct{}{}:
+		defer func() { <-scanSem }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("scan cancelled while waiting for semaphore: %w", ctx.Err())
+	}
+
+	scanCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	slog.Info("scan started (streaming)", "image", imageRef)
+	start := time.Now()
+
+	// Run without --quiet so stderr has progress info
+	cmd := exec.CommandContext(scanCtx, trivyPath, "image", "--format", "json", "--scanners", "vuln", imageRef)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start trivy: %w", err)
+	}
+
+	// Read stderr line-by-line and emit progress
+	scanner := bufio.NewScanner(stderr)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if msg := parseTrivyProgress(line); msg != "" {
+			onProgress(msg)
+		}
+	}
+
+	err = cmd.Wait()
+	duration := time.Since(start)
+	if err != nil {
+		if scanCtx.Err() == context.DeadlineExceeded {
+			slog.Error("scan timed out", "image", imageRef, "duration", duration.Round(time.Millisecond))
+			return nil, fmt.Errorf("trivy scan timed out after 5 minutes")
+		}
+		slog.Error("scan failed", "image", imageRef, "duration", duration.Round(time.Millisecond), "error", err)
+		return nil, fmt.Errorf("trivy scan failed: %w", err)
+	}
+
+	var report TrivyReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		return nil, fmt.Errorf("failed to parse trivy output: %w", err)
 	}
 
