@@ -652,12 +652,12 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 
 	force := r.URL.Query().Get("force") == "1"
 	peek := r.URL.Query().Get("peek") == "1"
+	stream := r.URL.Query().Get("stream") == "1"
 	start := time.Now()
 
-	slog.Info("scan request", "image", imageRef, "force", force, "peek", peek)
+	slog.Info("scan request", "image", imageRef, "force", force, "peek", peek, "stream", stream)
 
 	// Peek mode: check cache only, return 404 on miss (never triggers Trivy).
-	// Used by the frontend to instantly show cached results after inspect.
 	if peek && cacheStore != nil {
 		digest, err := registry.ResolveDigest(imageRef)
 		if err == nil {
@@ -679,37 +679,63 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check cache (for both streaming and non-streaming requests)
 	if cacheStore != nil && !force {
 		digest, err := registry.ResolveDigest(imageRef)
 		if err == nil {
-			result, err := cacheStore.GetOrCompute(r.Context(), "scan/"+digest, scanCacheTTL, func() ([]byte, error) {
-				scanResult, err := scanner.ScanImage(r.Context(), imageRef)
-				if err != nil {
-					return nil, err
+			// For streaming: check cache, return JSON on hit, fall through to stream on miss
+			if stream {
+				data, cachedAt, err := cacheStore.Get(r.Context(), "scan/"+digest)
+				if err == nil {
+					slog.Info("scan response", "image", imageRef, "cache", "HIT", "duration", time.Since(start).Round(time.Millisecond))
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("X-Cache", "HIT")
+					if !cachedAt.IsZero() {
+						w.Header().Set("X-Cached-At", cachedAt.UTC().Format(time.RFC3339))
+					}
+					writeBytes(w, data)
+					return
 				}
-				return json.Marshal(APIResponse{Success: true, Data: scanResult})
-			})
-			if err == nil {
-				cacheStatus := "MISS"
-				if result.FromCache {
-					cacheStatus = "HIT"
+				// Cache miss — fall through to streaming path
+			} else {
+				result, err := cacheStore.GetOrCompute(r.Context(), "scan/"+digest, scanCacheTTL, func() ([]byte, error) {
+					scanResult, err := scanner.ScanImage(r.Context(), imageRef)
+					if err != nil {
+						return nil, err
+					}
+					return json.Marshal(APIResponse{Success: true, Data: scanResult})
+				})
+				if err == nil {
+					cacheStatus := "MISS"
+					if result.FromCache {
+						cacheStatus = "HIT"
+					}
+					slog.Info("scan response", "image", imageRef, "cache", cacheStatus, "duration", time.Since(start).Round(time.Millisecond))
+					w.Header().Set("Content-Type", "application/json")
+					w.Header().Set("X-Cache", cacheStatus)
+					if !result.CachedAt.IsZero() {
+						w.Header().Set("X-Cached-At", result.CachedAt.UTC().Format(time.RFC3339))
+					}
+					writeBytes(w, result.Data)
+					return
 				}
-				slog.Info("scan response", "image", imageRef, "cache", cacheStatus, "duration", time.Since(start).Round(time.Millisecond))
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("X-Cache", cacheStatus)
-				if !result.CachedAt.IsZero() {
-					w.Header().Set("X-Cached-At", result.CachedAt.UTC().Format(time.RFC3339))
-				}
-				writeBytes(w, result.Data)
+				// Return scan errors immediately instead of falling through to a second attempt
+				slog.Error("scan failed", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond), "error", err)
+				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			slog.Warn("cache path failed, falling through", "image", imageRef, "error", err)
 		} else {
 			slog.Warn("digest resolution failed, falling through", "image", imageRef, "error", err)
 		}
 	}
 
-	// Force refresh or uncached path -- also store in cache if available
+	// Streaming path
+	if stream {
+		handleScanStream(w, r, imageRef, start)
+		return
+	}
+
+	// Non-streaming uncached/force path
 	scanResult, err := scanner.ScanImage(r.Context(), imageRef)
 	if err != nil {
 		slog.Error("scan failed", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond), "error", err)
@@ -717,21 +743,63 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// On force refresh with cache enabled, store the fresh result
-	if cacheStore != nil && force {
-		if digest, err := registry.ResolveDigest(imageRef); err == nil {
-			data, err := json.Marshal(APIResponse{Success: true, Data: scanResult})
-			if err == nil {
-				go func() {
-					if setErr := cacheStore.Set(context.Background(), "scan/"+digest, data, scanCacheTTL); setErr != nil {
-						slog.Warn("cache set failed after force rescan", "image", imageRef, "error", setErr)
-					}
-				}()
-			}
-		}
-	}
+	storeScanInCache(imageRef, scanResult)
 
 	slog.Info("scan response", "image", imageRef, "cache", "NONE", "vulns", scanResult.TotalCount, "duration", time.Since(start).Round(time.Millisecond))
 	w.Header().Set("Content-Type", "application/json")
 	writeJSON(w, APIResponse{Success: true, Data: scanResult})
+}
+
+// storeScanInCache saves a scan result to S3 cache in the background.
+func storeScanInCache(imageRef string, scanResult *scanner.ScanResult) {
+	if cacheStore == nil {
+		return
+	}
+	if digest, err := registry.ResolveDigest(imageRef); err == nil {
+		data, err := json.Marshal(APIResponse{Success: true, Data: scanResult})
+		if err == nil {
+			go func() {
+				if setErr := cacheStore.Set(context.Background(), "scan/"+digest, data, scanCacheTTL); setErr != nil {
+					slog.Warn("cache set failed", "image", imageRef, "error", setErr)
+				}
+			}()
+		}
+	}
+}
+
+// handleScanStream runs a Trivy scan and streams progress via Server-Sent Events.
+func handleScanStream(w http.ResponseWriter, r *http.Request, imageRef string, start time.Time) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	sendSSE := func(event, data string) {
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+		flusher.Flush()
+	}
+
+	scanResult, err := scanner.ScanImageStream(r.Context(), imageRef, func(msg string) {
+		msgJSON, _ := json.Marshal(map[string]string{"message": msg})
+		sendSSE("progress", string(msgJSON))
+	})
+	if err != nil {
+		slog.Error("scan failed", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond), "error", err)
+		errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
+		sendSSE("error", string(errJSON))
+		return
+	}
+
+	storeScanInCache(imageRef, scanResult)
+
+	resultJSON, _ := json.Marshal(APIResponse{Success: true, Data: scanResult})
+	sendSSE("result", string(resultJSON))
+
+	slog.Info("scan response (streamed)", "image", imageRef, "vulns", scanResult.TotalCount, "duration", time.Since(start).Round(time.Millisecond))
 }

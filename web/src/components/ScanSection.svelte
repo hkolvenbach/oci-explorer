@@ -25,6 +25,45 @@
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   }
 
+  // Cross-reference scan results with VEX documents attached to the image.
+  // Must be called for both fresh scans and cached results since the cache
+  // stores raw scan data without VEX annotations.
+  async function applyVEX(result: ScanResult) {
+    const vexReferrers = (data.referrers || []).filter((r) => r.type === 'vex');
+    if (vexReferrers.length === 0) return;
+
+    const vexMap = new Map<string, { status: string; justification?: string; impact?: string }>();
+    for (const vexRef of vexReferrers) {
+      try {
+        const doc: VEXDocument = await api.fetchVEX(data.repository, vexRef.digest);
+        for (const stmt of doc.statements) {
+          const entry = { status: stmt.status, justification: stmt.justification, impact: stmt.impact_statement };
+          if (stmt.vulnerability.name) {
+            vexMap.set(stmt.vulnerability.name, entry);
+          }
+          for (const alias of stmt.vulnerability.aliases || []) {
+            vexMap.set(alias, entry);
+          }
+        }
+      } catch (err) {
+        console.warn('VEX fetch failed for', vexRef.digest, err);
+      }
+    }
+
+    if (vexMap.size > 0) {
+      for (const sevGroup of Object.values(result.bySeverity)) {
+        for (const vuln of sevGroup) {
+          const entry = vexMap.get(vuln.vulnerabilityID);
+          if (entry) {
+            vuln.vexStatus = entry.status;
+            vuln.vexJustification = entry.justification;
+            vuln.vexImpact = entry.impact;
+          }
+        }
+      }
+    }
+  }
+
   // Track which image the current peek is for to discard stale responses
   let peekGeneration = 0;
 
@@ -36,9 +75,11 @@
     scanCachedAt = undefined;
     scanError = '';
     isPeeking = true;
-    api.peekScan(imageRef).then((cached) => {
+    api.peekScan(imageRef).then(async (cached) => {
       if (gen !== peekGeneration) return; // stale response from previous image
       if (cached) {
+        await applyVEX(cached.result);
+        if (gen !== peekGeneration) return; // check again after async VEX fetch
         scanResult = cached.result;
         scanCachedAt = cached.cachedAt;
       }
@@ -71,7 +112,7 @@
         else noFix++;
       }
     }
-    return { total: scanResult.totalCount, fixable, vexed, noFix };
+    return { total: scanResult.totalCount, open: fixable + noFix, fixable, vexed, noFix };
   });
 
   // Determine highest severity for results border color
@@ -100,42 +141,14 @@
     startTimer();
 
     try {
-      scanStep = 'Scanning with Trivy...';
-      const scanResponse = await api.scanImage(imageRef, force);
+      scanStep = 'Starting scan...';
+      const scanResponse = await api.scanImageStream(imageRef, force, (msg) => {
+        scanStep = msg;
+      });
       const result = scanResponse.result;
       scanCachedAt = scanResponse.cachedAt;
 
-      // Cross-reference with VEX (if VEX referrers exist)
-      const vexReferrers = (data.referrers || []).filter((r) => r.type === 'vex');
-      if (vexReferrers.length > 0) {
-        scanStep = 'Cross-referencing with VEX...';
-        const vexMap = new Map<string, string>();
-        for (const vexRef of vexReferrers) {
-          try {
-            const doc: VEXDocument = await api.fetchVEX(data.repository, vexRef.digest);
-            for (const stmt of doc.statements) {
-              if (stmt.vulnerability.name) {
-                vexMap.set(stmt.vulnerability.name, stmt.status);
-              }
-              for (const alias of stmt.vulnerability.aliases || []) {
-                vexMap.set(alias, stmt.status);
-              }
-            }
-          } catch {
-            // VEX fetch failure is non-fatal
-          }
-        }
-
-        if (vexMap.size > 0) {
-          for (const sevGroup of Object.values(result.bySeverity)) {
-            for (const vuln of sevGroup) {
-              const status = vexMap.get(vuln.vulnerabilityID);
-              if (status) vuln.vexStatus = status;
-            }
-          }
-        }
-      }
-
+      await applyVEX(result);
       scanResult = result;
       scanStep = '';
     } catch (err) {
@@ -165,6 +178,7 @@
             <span class="px-2 py-0.5 text-xs rounded bg-green-500/15 text-green-400 font-medium">No vulnerabilities</span>
           {:else}
             <span class="px-2 py-0.5 text-xs rounded bg-slate-500/15 text-slate-300 font-medium">{summaryStats.total} vulnerabilities</span>
+            <span class="px-2 py-0.5 text-xs rounded font-medium {summaryStats.open > 0 ? 'bg-orange-500/15 text-orange-400' : 'bg-green-500/15 text-green-400'}">{summaryStats.open} open</span>
             {#if summaryStats.fixable > 0}
               <button
                 onclick={(e: MouseEvent) => { e.stopPropagation(); globalStatusFilter = globalStatusFilter === 'fixable' ? 'all' : 'fixable'; }}

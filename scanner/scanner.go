@@ -1,6 +1,8 @@
 package scanner
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -155,6 +157,94 @@ func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 
 	var report TrivyReport
 	if err := json.Unmarshal(output, &report); err != nil {
+		return nil, fmt.Errorf("failed to parse trivy output: %w", err)
+	}
+
+	result := processReport(report)
+	slog.Info("scan complete", "image", imageRef, "duration", duration.Round(time.Millisecond), "vulns", result.TotalCount, "targets", len(result.Targets))
+	return result, nil
+}
+
+// extractTrivyMessage strips the timestamp/level prefix from a Trivy log line
+// and returns the message part. Returns "" for progress bar noise.
+func extractTrivyMessage(line string) string {
+	// Skip progress bar lines (contain ASCII bar characters and MiB/KiB)
+	if strings.Contains(line, "MiB") || strings.Contains(line, "KiB") || strings.Contains(line, "p/s") {
+		return ""
+	}
+	// Skip empty lines
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	// Trivy log format: "2026-03-29T12:34:52+02:00\tINFO\t[component] message\tkey=val"
+	// Strip timestamp and level prefix, return the rest
+	parts := strings.SplitN(line, "\t", 3)
+	if len(parts) >= 3 {
+		return strings.TrimSpace(parts[2])
+	}
+	// If no tabs (unexpected format), return the whole line
+	return line
+}
+
+// ScanImageStream is like ScanImage but streams Trivy's stderr log lines
+// to the caller via onProgress. Each call receives the actual Trivy log
+// message with the timestamp stripped.
+func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg string)) (*ScanResult, error) {
+	trivyPath, err := exec.LookPath("trivy")
+	if err != nil {
+		return nil, fmt.Errorf("trivy is not installed or not in PATH: %w", err)
+	}
+
+	select {
+	case scanSem <- struct{}{}:
+		defer func() { <-scanSem }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("scan cancelled while waiting for semaphore: %w", ctx.Err())
+	}
+
+	scanCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	slog.Info("scan started (streaming)", "image", imageRef)
+	start := time.Now()
+
+	// Run without --quiet so stderr has progress info
+	cmd := exec.CommandContext(scanCtx, trivyPath, "image", "--format", "json", "--scanners", "vuln", imageRef)
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start trivy: %w", err)
+	}
+
+	// Stream stderr line-by-line
+	sc := bufio.NewScanner(stderr)
+	for sc.Scan() {
+		if msg := extractTrivyMessage(sc.Text()); msg != "" {
+			onProgress(msg)
+		}
+	}
+
+	err = cmd.Wait()
+	duration := time.Since(start)
+	if err != nil {
+		if scanCtx.Err() == context.DeadlineExceeded {
+			slog.Error("scan timed out", "image", imageRef, "duration", duration.Round(time.Millisecond))
+			return nil, fmt.Errorf("trivy scan timed out after 5 minutes")
+		}
+		slog.Error("scan failed", "image", imageRef, "duration", duration.Round(time.Millisecond), "error", err)
+		return nil, fmt.Errorf("trivy scan failed: %w", err)
+	}
+
+	var report TrivyReport
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		return nil, fmt.Errorf("failed to parse trivy output: %w", err)
 	}
 

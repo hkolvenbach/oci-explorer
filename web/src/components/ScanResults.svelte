@@ -20,6 +20,24 @@
 
   // Filter state: which severities are enabled (all on by default)
   let enabledSeverities = $state(new Set(severityOrder));
+  let showVexedInChips = $state(false);
+
+  // Counts excluding VEXed entries
+  let unvexedCounts = $derived.by(() => {
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const sev of severityOrder) {
+      const vulns = result.bySeverity[sev] || [];
+      const count = vulns.filter((v) => !v.vexStatus).length;
+      counts[sev] = count;
+      total += count;
+    }
+    counts['_total'] = total;
+    return counts;
+  });
+
+  let chipTotal = $derived(showVexedInChips ? result.totalCount : unvexedCounts['_total']);
+  let hasVexedItems = $derived(unvexedCounts['_total'] !== result.totalCount);
 
   // Per-section status filter overrides (when a user clicks chips inside a severity group header)
   let sectionFilters = $state<Record<string, 'all' | 'fixable' | 'nofix' | 'vexed'>>({});
@@ -172,20 +190,25 @@
     {#each availableSeverities as severity}
       {@const colors = severityColors[severity]}
       {@const active = enabledSeverities.has(severity)}
+      {@const count = showVexedInChips ? result.severityCounts[severity] : unvexedCounts[severity]}
+      {#if count > 0 || showVexedInChips}
       <button
         onclick={() => toggleSeverityFilter(severity)}
         class="px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer {active ? colors.badge : colors.badgeOff + ' line-through'}"
       >
-        {severity}: {result.severityCounts[severity]}
+        {severity}: {count}
       </button>
+      {/if}
     {/each}
     <span class="px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-600/30 text-slate-300">
-      {#if filteredTotal === result.totalCount}
-        Total: {result.totalCount}
-      {:else}
-        Showing: {filteredTotal} / {result.totalCount}
-      {/if}
+      Total: {result.totalCount}
     </span>
+    {#if hasVexedItems}
+      <button
+        onclick={() => showVexedInChips = !showVexedInChips}
+        class="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors {showVexedInChips ? 'bg-purple-500/30 text-purple-300 ring-1 ring-purple-500/50' : 'bg-purple-500/15 text-purple-400 hover:bg-purple-500/25'}"
+      >{result.totalCount - unvexedCounts['_total']} VEXed</button>
+    {/if}
   </div>
 
   <!-- Severity groups -->
@@ -197,22 +220,24 @@
     {@const sectionOpen = isSectionOpen(severity)}
     {@const eff = effectiveFilter(severity)}
     {#if vulns}
-    <div class="border {colors.border} rounded-lg overflow-hidden">
+    {@const allVexed = stats.fixable === 0 && stats.noFix === 0 && stats.vexed > 0}
+    {@const dimVexed = allVexed && !showVexedInChips}
+    <div class="border {dimVexed ? 'border-slate-700/50' : colors.border} rounded-lg overflow-hidden {dimVexed ? 'opacity-60' : ''}">
       <!-- svelte-ignore a11y_click_events_have_key_events -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="px-4 py-2.5 {colors.bg} flex items-center justify-between cursor-pointer"
+        class="px-4 py-2.5 {dimVexed ? 'bg-slate-800/30' : colors.bg} flex items-center justify-between cursor-pointer"
         onclick={() => toggleSection(severity)}
       >
         <div class="flex items-center gap-2">
           <svg
-            class="w-4 h-4 {colors.text} transition-transform flex-shrink-0"
+            class="w-4 h-4 {dimVexed ? 'text-slate-500' : colors.text} transition-transform flex-shrink-0"
             style:transform={sectionOpen ? 'rotate(90deg)' : 'rotate(0deg)'}
             fill="none" stroke="currentColor" viewBox="0 0 24 24"
           >
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
           </svg>
-          <span class="font-semibold {colors.text}">{severity}</span>
+          <span class="font-semibold {dimVexed ? 'text-slate-500' : colors.text}">{severity}</span>
           <span class="text-xs text-slate-400">({vulns.length}{#if vulns.length !== allVulns.length}/{allVulns.length}{/if})</span>
         </div>
         <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -243,7 +268,7 @@
           {#each vulns as vuln}
             {@const vexBadge = getVexBadge(vuln)}
             {@const expanded = isVulnOpen(vuln.vulnerabilityID + vuln.pkgName)}
-            <div class="px-4 py-2.5 hover:bg-slate-800/50 transition-colors">
+            <div class="px-4 py-2.5 hover:bg-slate-800/50 transition-colors {vexBadge && !showVexedInChips ? 'opacity-60' : ''}">
               <!-- svelte-ignore a11y_click_events_have_key_events -->
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
@@ -256,7 +281,7 @@
                       href={vuln.primaryURL}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="font-mono text-sm {colors.text} hover:underline flex-shrink-0"
+                      class="font-mono text-sm {vexBadge && !showVexedInChips ? 'text-slate-500' : colors.text} hover:underline flex-shrink-0"
                       onclick={(e: MouseEvent) => e.stopPropagation()}
                     >
                       {vuln.vulnerabilityID}
@@ -266,7 +291,9 @@
                     {/if}
                     <span class="text-xs text-slate-400 font-mono truncate">{vuln.pkgName}</span>
                   </div>
-                  {#if vuln.title}
+                  {#if vuln.vexImpact}
+                    <p class="text-xs text-purple-400/70 mt-0.5 truncate">{vuln.vexImpact}</p>
+                  {:else if vuln.title}
                     <p class="text-xs text-slate-400 mt-0.5 truncate">{vuln.title}</p>
                   {/if}
                 </div>

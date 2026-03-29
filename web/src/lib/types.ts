@@ -150,6 +150,8 @@ export interface VulnSummary {
   target: string;
   targets?: string[];
   vexStatus?: string;
+  vexJustification?: string;
+  vexImpact?: string;
 }
 
 export interface TargetSummary {
