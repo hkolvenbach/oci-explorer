@@ -2,7 +2,7 @@
 
 Visualize OCI container image structures including layers, manifests, referrers, SBOMs, attestations, and other supply chain artifacts. Built with Go and Svelte.
 
-![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8) ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00) ![Trivy](https://img.shields.io/badge/Trivy-0.69+-1904DA) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg) ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+![OCI Image Explorer](https://img.shields.io/badge/OCI-1.1-blue) ![Go](https://img.shields.io/badge/Go-1.26+-00ADD8) ![Svelte](https://img.shields.io/badge/Svelte-5-FF3E00) ![Trivy](https://img.shields.io/badge/Trivy-0.69+-1904DA) ![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg) ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest&v=2)
 
 ---
 
@@ -14,7 +14,7 @@ Visualize OCI container image structures including layers, manifests, referrers,
 
 ### Add a supply chain score badge to your repo
 
-Does your project publish a container image? Add a badge like this one &rarr; ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest) &larr; to show its supply chain security score.
+Does your project publish a container image? Add a badge like this one &rarr; ![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest&v=2) &larr; to show its supply chain security score.
 
 Just drop this into your README and replace the image reference:
 
@@ -141,7 +141,7 @@ Supply chain score badges for embedding in READMEs and websites:
 
 ```markdown
 <!-- Self-rendered SVG (direct) -->
-![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest&v=2)
 
 <!-- Via shields.io (supports style overrides like ?style=for-the-badge) -->
 ![supply chain score](https://img.shields.io/endpoint?url=https://ociexplorer.dev/badge/score.json?image=ghcr.io/hkolvenbach/oci-explorer:latest)
@@ -290,7 +290,7 @@ Embeddable supply chain score badge as a self-rendered SVG. Returns a shields.io
 
 **Embed in Markdown:**
 ```markdown
-![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest)
+![supply chain score](https://ociexplorer.dev/badge/score.svg?image=ghcr.io/hkolvenbach/oci-explorer:latest&v=2)
 ```
 
 ### GET /badge/score.json
