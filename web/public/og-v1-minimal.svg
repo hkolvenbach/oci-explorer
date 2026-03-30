@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <!-- Dot grid pattern -->
+    <pattern id="dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="1" fill="rgba(255,255,255,0.03)"/>
+    </pattern>
+    <!-- Orange glow -->
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Logo gradient -->
+    <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="#0f172a"/>
+  <rect width="1280" height="640" fill="url(#dots)"/>
+
+  <!-- Subtle glow behind logo -->
+  <ellipse cx="380" cy="315" rx="200" ry="200" fill="url(#glow)"/>
+
+  <!-- Logo icon - large version -->
+  <g transform="translate(300, 235)">
+    <rect width="160" height="160" rx="30" fill="url(#logoGrad)"/>
+    <g transform="translate(80, 80) scale(4)">
+      <path d="M0 -10l-9 4.5v11L0 10l9-4.5v-11L0 -10z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+      <path d="M-9 -5.5L0 -1l9-4.5M0 -1v11" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Text -->
+  <text x="520" y="300" font-family="Space Grotesk, system-ui, sans-serif" font-size="56" font-weight="700" fill="#f1f5f9">OCI Image</text>
+  <text x="520" y="370" font-family="Space Grotesk, system-ui, sans-serif" font-size="56" font-weight="700" fill="#f97316">Explorer</text>
+  <text x="520" y="415" font-family="Space Grotesk, system-ui, sans-serif" font-size="22" font-weight="400" fill="#94a3b8">Visualize OCI container image structures</text>
+</svg>

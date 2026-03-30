@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <pattern id="dots4" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="1" fill="rgba(255,255,255,0.04)"/>
+    </pattern>
+    <linearGradient id="logoGrad4" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="50%" cy="45%" r="40%">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.06"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+    </radialGradient>
+    <!-- Thin border gradient -->
+    <linearGradient id="borderGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.3"/>
+      <stop offset="50%" stop-color="#334155" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0.3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="#0f172a"/>
+  <rect width="1280" height="640" fill="url(#dots4)"/>
+  <rect width="1280" height="640" fill="url(#bgGlow)"/>
+
+  <!-- Subtle border -->
+  <rect x="1" y="1" width="1278" height="638" rx="0" fill="none" stroke="url(#borderGrad)" stroke-width="1"/>
+
+  <!-- Center logo -->
+  <g transform="translate(570, 140)">
+    <rect width="140" height="140" rx="28" fill="url(#logoGrad4)"/>
+    <g transform="translate(70, 70) scale(3.5)">
+      <path d="M0 -10l-9 4.5v11L0 10l9-4.5v-11L0 -10z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+      <path d="M-9 -5.5L0 -1l9-4.5M0 -1v11" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Title centered -->
+  <text x="640" y="340" font-family="Space Grotesk, system-ui, sans-serif" font-size="54" font-weight="700" fill="#f1f5f9" text-anchor="middle">OCI Image <tspan fill="#f97316">Explorer</tspan></text>
+
+  <!-- Subtitle -->
+  <text x="640" y="385" font-family="Space Grotesk, system-ui, sans-serif" font-size="20" font-weight="400" fill="#94a3b8" text-anchor="middle">Visualize OCI container image structures</text>
+
+  <!-- Badge row centered: SBOM, CVEs, VEX, Attestation, Signature -->
+  <g transform="translate(640, 430)">
+    <!-- SBOM -->
+    <rect x="-245" y="0" width="72" height="30" rx="6" fill="#06b6d4" fill-opacity="0.15" stroke="#06b6d4" stroke-opacity="0.25" stroke-width="1"/>
+    <text x="-209" y="20" font-family="Space Grotesk, system-ui, sans-serif" font-size="13" font-weight="500" fill="#22d3ee" text-anchor="middle">SBOM</text>
+
+    <!-- CVEs -->
+    <rect x="-160" y="0" width="66" height="30" rx="6" fill="#ef4444" fill-opacity="0.15" stroke="#ef4444" stroke-opacity="0.25" stroke-width="1"/>
+    <text x="-127" y="20" font-family="Space Grotesk, system-ui, sans-serif" font-size="13" font-weight="500" fill="#fca5a5" text-anchor="middle">CVEs</text>
+
+    <!-- VEX -->
+    <rect x="-82" y="0" width="60" height="30" rx="6" fill="#10b981" fill-opacity="0.15" stroke="#10b981" stroke-opacity="0.25" stroke-width="1"/>
+    <text x="-52" y="20" font-family="Space Grotesk, system-ui, sans-serif" font-size="13" font-weight="500" fill="#6ee7b7" text-anchor="middle">VEX</text>
+
+    <!-- Attestation -->
+    <rect x="-10" y="0" width="110" height="30" rx="6" fill="#8b5cf6" fill-opacity="0.15" stroke="#8b5cf6" stroke-opacity="0.25" stroke-width="1"/>
+    <text x="45" y="20" font-family="Space Grotesk, system-ui, sans-serif" font-size="13" font-weight="500" fill="#c4b5fd" text-anchor="middle">Attestation</text>
+
+    <!-- Signature -->
+    <rect x="112" y="0" width="95" height="30" rx="6" fill="#f59e0b" fill-opacity="0.15" stroke="#f59e0b" stroke-opacity="0.25" stroke-width="1"/>
+    <text x="159" y="20" font-family="Space Grotesk, system-ui, sans-serif" font-size="13" font-weight="500" fill="#fcd34d" text-anchor="middle">Signature</text>
+  </g>
+
+  <!-- Subtle command prompt at bottom -->
+  <g transform="translate(640, 510)">
+    <rect x="-200" y="0" width="400" height="40" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+    <text x="-180" y="26" font-family="monospace" font-size="14" fill="#64748b">$</text>
+    <text x="-165" y="26" font-family="monospace" font-size="14" fill="#94a3b8">explore library/nginx:latest</text>
+  </g>
+</svg>

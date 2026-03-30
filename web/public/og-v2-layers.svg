@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <pattern id="dots2" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="1" fill="rgba(255,255,255,0.03)"/>
+    </pattern>
+    <linearGradient id="logoGrad2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="layerGrad1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="layerGrad2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0.03"/>
+    </linearGradient>
+    <linearGradient id="layerGrad3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#8b5cf6" stop-opacity="0.03"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="#0f172a"/>
+  <rect width="1280" height="640" fill="url(#dots2)"/>
+
+  <!-- Decorative layers on right side - abstract OCI image layers -->
+  <g transform="translate(780, 120)" opacity="0.6">
+    <!-- Layer 3 (bottom) -->
+    <g transform="translate(0, 200)">
+      <rect x="0" y="0" width="340" height="80" rx="8" fill="url(#layerGrad3)" stroke="#8b5cf6" stroke-opacity="0.2" stroke-width="1"/>
+      <text x="20" y="32" font-family="monospace" font-size="11" fill="#8b5cf6" opacity="0.5">attestation</text>
+      <text x="20" y="55" font-family="monospace" font-size="11" fill="#94a3b8" opacity="0.4">sha256:9f2e...a1b3</text>
+    </g>
+    <!-- Layer 2 (middle) -->
+    <g transform="translate(0, 105)">
+      <rect x="0" y="0" width="340" height="80" rx="8" fill="url(#layerGrad2)" stroke="#06b6d4" stroke-opacity="0.2" stroke-width="1"/>
+      <text x="20" y="32" font-family="monospace" font-size="11" fill="#06b6d4" opacity="0.5">sbom / spdx-json</text>
+      <text x="20" y="55" font-family="monospace" font-size="11" fill="#94a3b8" opacity="0.4">sha256:4d8c...e7f2</text>
+    </g>
+    <!-- Layer 1 (top) -->
+    <g transform="translate(0, 10)">
+      <rect x="0" y="0" width="340" height="80" rx="8" fill="url(#layerGrad1)" stroke="#f97316" stroke-opacity="0.2" stroke-width="1"/>
+      <text x="20" y="32" font-family="monospace" font-size="11" fill="#f97316" opacity="0.5">manifest / oci-image</text>
+      <text x="20" y="55" font-family="monospace" font-size="11" fill="#94a3b8" opacity="0.4">sha256:a1b2...c3d4</text>
+    </g>
+    <!-- Connecting lines -->
+    <line x1="170" y1="90" x2="170" y2="105" stroke="#334155" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="170" y1="185" x2="170" y2="200" stroke="#334155" stroke-width="1" stroke-dasharray="3,3"/>
+  </g>
+
+  <!-- Logo icon -->
+  <g transform="translate(80, 200)">
+    <rect width="130" height="130" rx="26" fill="url(#logoGrad2)"/>
+    <g transform="translate(65, 65) scale(3.2)">
+      <path d="M0 -10l-9 4.5v11L0 10l9-4.5v-11L0 -10z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+      <path d="M-9 -5.5L0 -1l9-4.5M0 -1v11" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+    </g>
+  </g>
+
+  <!-- Text -->
+  <text x="240" y="260" font-family="Space Grotesk, system-ui, sans-serif" font-size="52" font-weight="700" fill="#f1f5f9">OCI Image</text>
+  <text x="240" y="325" font-family="Space Grotesk, system-ui, sans-serif" font-size="52" font-weight="700" fill="#f97316">Explorer</text>
+  <text x="240" y="370" font-family="Space Grotesk, system-ui, sans-serif" font-size="20" font-weight="400" fill="#94a3b8">Visualize OCI container image structures</text>
+
+  <!-- Badge row: SBOM, CVEs, VEX, Attestation, Signature -->
+  <g transform="translate(240, 400)">
+    <rect x="0" y="0" width="72" height="28" rx="6" fill="#06b6d4" fill-opacity="0.2" stroke="#06b6d4" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="36" y="18" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#22d3ee" text-anchor="middle">SBOM</text>
+
+    <rect x="84" y="0" width="64" height="28" rx="6" fill="#ef4444" fill-opacity="0.2" stroke="#ef4444" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="116" y="18" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#fca5a5" text-anchor="middle">CVEs</text>
+
+    <rect x="160" y="0" width="58" height="28" rx="6" fill="#10b981" fill-opacity="0.2" stroke="#10b981" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="189" y="18" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#6ee7b7" text-anchor="middle">VEX</text>
+
+    <rect x="230" y="0" width="110" height="28" rx="6" fill="#8b5cf6" fill-opacity="0.2" stroke="#8b5cf6" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="285" y="18" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#c4b5fd" text-anchor="middle">Attestation</text>
+
+    <rect x="352" y="0" width="90" height="28" rx="6" fill="#f59e0b" fill-opacity="0.2" stroke="#f59e0b" stroke-opacity="0.3" stroke-width="1"/>
+    <text x="397" y="18" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#fcd34d" text-anchor="middle">Signature</text>
+  </g>
+</svg>

@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <defs>
+    <pattern id="dots3" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+      <circle cx="12" cy="12" r="1" fill="rgba(255,255,255,0.03)"/>
+    </pattern>
+    <linearGradient id="logoGrad3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fb923c"/>
+      <stop offset="100%" stop-color="#ea580c"/>
+    </linearGradient>
+    <linearGradient id="scoreGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#4ade80"/>
+    </linearGradient>
+    <!-- Card shadow -->
+    <filter id="cardShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="12" flood-color="#000000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="#0f172a"/>
+  <rect width="1280" height="640" fill="url(#dots3)"/>
+
+  <!-- Top section: logo + title -->
+  <g transform="translate(80, 60)">
+    <!-- Logo -->
+    <rect width="60" height="60" rx="14" fill="url(#logoGrad3)"/>
+    <g transform="translate(30, 30) scale(1.5)">
+      <path d="M0 -10l-9 4.5v11L0 10l9-4.5v-11L0 -10z" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+      <path d="M-9 -5.5L0 -1l9-4.5M0 -1v11" fill="none" stroke="white" stroke-width="1.5" stroke-linejoin="round" opacity="0.9"/>
+    </g>
+
+    <!-- Title next to logo -->
+    <text x="80" y="28" font-family="Space Grotesk, system-ui, sans-serif" font-size="28" font-weight="700" fill="#f1f5f9">OCI Image</text>
+    <text x="80" y="55" font-family="Space Grotesk, system-ui, sans-serif" font-size="28" font-weight="700" fill="#f97316">Explorer</text>
+  </g>
+
+  <!-- Mock UI card - image details -->
+  <g filter="url(#cardShadow)">
+    <rect x="80" y="160" width="500" height="400" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+
+    <!-- Card header -->
+    <rect x="80" y="160" width="500" height="50" rx="12" fill="#1e293b"/>
+    <rect x="80" y="198" width="500" height="12" fill="#1e293b"/>
+    <text x="105" y="192" font-family="monospace" font-size="14" fill="#f97316">library/nginx:latest</text>
+    <line x1="80" y1="210" x2="580" y2="210" stroke="#334155" stroke-width="1"/>
+
+    <!-- Stats row -->
+    <g transform="translate(105, 230)">
+      <rect x="0" y="0" width="90" height="50" rx="6" fill="#f97316" fill-opacity="0.1" stroke="#f97316" stroke-opacity="0.2" stroke-width="1"/>
+      <text x="45" y="22" font-family="monospace" font-size="16" font-weight="700" fill="#f97316" text-anchor="middle">72 MB</text>
+      <text x="45" y="38" font-family="Space Grotesk, system-ui, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Total Size</text>
+
+      <rect x="105" y="0" width="90" height="50" rx="6" fill="#334155" fill-opacity="0.4"/>
+      <text x="150" y="22" font-family="monospace" font-size="16" font-weight="700" fill="#f1f5f9" text-anchor="middle">7</text>
+      <text x="150" y="38" font-family="Space Grotesk, system-ui, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Layers</text>
+
+      <rect x="210" y="0" width="90" height="50" rx="6" fill="#334155" fill-opacity="0.4"/>
+      <text x="255" y="22" font-family="monospace" font-size="16" font-weight="700" fill="#f1f5f9" text-anchor="middle">4</text>
+      <text x="255" y="38" font-family="Space Grotesk, system-ui, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Referrers</text>
+
+      <rect x="315" y="0" width="90" height="50" rx="6" fill="#334155" fill-opacity="0.4"/>
+      <text x="360" y="22" font-family="monospace" font-size="16" font-weight="700" fill="#f1f5f9" text-anchor="middle">linux</text>
+      <text x="360" y="38" font-family="Space Grotesk, system-ui, sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Platform</text>
+    </g>
+
+    <!-- Referrer badges: SBOM, CVEs, VEX, Attestation, Signature -->
+    <g transform="translate(105, 300)">
+      <text x="0" y="0" font-family="Space Grotesk, system-ui, sans-serif" font-size="13" font-weight="600" fill="#94a3b8">Supply Chain Artifacts</text>
+
+      <g transform="translate(0, 15)">
+        <rect x="0" y="0" width="450" height="36" rx="6" fill="#06b6d4" fill-opacity="0.08" stroke="#06b6d4" stroke-opacity="0.15" stroke-width="1"/>
+        <circle cx="18" cy="18" r="4" fill="#06b6d4"/>
+        <text x="32" y="22" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#22d3ee">SBOM</text>
+        <text x="75" y="22" font-family="monospace" font-size="11" fill="#64748b">spdx-json  sha256:4d8c...e7f2</text>
+      </g>
+      <g transform="translate(0, 58)">
+        <rect x="0" y="0" width="450" height="36" rx="6" fill="#ef4444" fill-opacity="0.08" stroke="#ef4444" stroke-opacity="0.15" stroke-width="1"/>
+        <circle cx="18" cy="18" r="4" fill="#ef4444"/>
+        <text x="32" y="22" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#fca5a5">CVEs</text>
+        <text x="72" y="22" font-family="monospace" font-size="11" fill="#64748b">3 critical  12 high  5 medium</text>
+      </g>
+      <g transform="translate(0, 101)">
+        <rect x="0" y="0" width="450" height="36" rx="6" fill="#10b981" fill-opacity="0.08" stroke="#10b981" stroke-opacity="0.15" stroke-width="1"/>
+        <circle cx="18" cy="18" r="4" fill="#10b981"/>
+        <text x="32" y="22" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#6ee7b7">VEX</text>
+        <text x="67" y="22" font-family="monospace" font-size="11" fill="#64748b">openvex      sha256:b2e1...f890</text>
+      </g>
+      <g transform="translate(0, 144)">
+        <rect x="0" y="0" width="450" height="36" rx="6" fill="#8b5cf6" fill-opacity="0.08" stroke="#8b5cf6" stroke-opacity="0.15" stroke-width="1"/>
+        <circle cx="18" cy="18" r="4" fill="#8b5cf6"/>
+        <text x="32" y="22" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" font-weight="500" fill="#c4b5fd">Attestation</text>
+        <text x="110" y="22" font-family="monospace" font-size="11" fill="#64748b">in-toto   sha256:7a3f...d1c2</text>
+      </g>
+    </g>
+  </g>
+
+  <!-- Right side: Security score ring -->
+  <g filter="url(#cardShadow)">
+    <rect x="640" y="160" width="480" height="400" rx="12" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+
+    <!-- Score heading -->
+    <text x="880" y="210" font-family="Space Grotesk, system-ui, sans-serif" font-size="16" font-weight="600" fill="#94a3b8" text-anchor="middle">Supply Chain Security Score</text>
+
+    <!-- Score ring -->
+    <g transform="translate(880, 370)">
+      <circle cx="0" cy="0" r="100" fill="none" stroke="#334155" stroke-width="10"/>
+      <circle cx="0" cy="0" r="100" fill="none" stroke="url(#scoreGrad)" stroke-width="10" stroke-linecap="round"
+        stroke-dasharray="565" stroke-dashoffset="113" transform="rotate(-90)"/>
+      <text x="0" y="-10" font-family="Space Grotesk, system-ui, sans-serif" font-size="56" font-weight="700" fill="#22c55e" text-anchor="middle">A</text>
+      <text x="0" y="25" font-family="Space Grotesk, system-ui, sans-serif" font-size="18" fill="#94a3b8" text-anchor="middle">80 / 100</text>
+    </g>
+
+    <!-- Score breakdown -->
+    <g transform="translate(680, 500)">
+      <circle cx="8" cy="8" r="5" fill="#22c55e"/>
+      <text x="22" y="12" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" fill="#cbd5e1">Provenance</text>
+      <circle cx="128" cy="8" r="5" fill="#06b6d4"/>
+      <text x="142" y="12" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" fill="#cbd5e1">SBOM</text>
+      <circle cx="208" cy="8" r="5" fill="#ef4444"/>
+      <text x="222" y="12" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" fill="#cbd5e1">CVEs</text>
+      <circle cx="288" cy="8" r="5" fill="#f59e0b"/>
+      <text x="302" y="12" font-family="Space Grotesk, system-ui, sans-serif" font-size="12" fill="#cbd5e1">Signature</text>
+    </g>
+  </g>
+</svg>
