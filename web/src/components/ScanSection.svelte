@@ -171,7 +171,7 @@
       </svg>
       <span class="font-semibold text-slate-100">Vulnerability Scan</span>
       {#if isScanning}
-        <span class="text-sm text-slate-400">{scanStep}{#if elapsedSeconds > 0} {elapsedSeconds}s{/if}</span>
+        <span class="text-sm text-slate-400">{scanStep}{#if elapsedSeconds > 0}{' '}{elapsedSeconds}s{/if}</span>
       {:else if scanResult && summaryStats}
         <div class="flex items-center gap-1.5 flex-wrap">
           {#if summaryStats.total === 0}

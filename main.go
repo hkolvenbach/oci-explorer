@@ -152,6 +152,9 @@ func main() {
 	if token := os.Getenv("DOCKER_HUB_TOKEN"); token != "" {
 		user := os.Getenv("DOCKER_HUB_USER")
 		registry.ConfigureDockerHubAuth(user, token)
+		// Also set Trivy's env vars so the subprocess uses the same credentials.
+		os.Setenv("TRIVY_USERNAME", user)
+		os.Setenv("TRIVY_PASSWORD", token)
 		slog.Info("Docker Hub authentication configured", "user", user)
 	}
 

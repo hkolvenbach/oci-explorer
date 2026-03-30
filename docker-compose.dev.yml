@@ -41,6 +41,12 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
       AWS_EC2_METADATA_DISABLED: "true"   # skip IMDS probes inside Docker
+      # Docker Hub auth (optional) — set in .env or shell to avoid rate limits.
+      # Trivy uses TRIVY_USERNAME/TRIVY_PASSWORD for its own registry pulls.
+      DOCKER_HUB_USER: ${DOCKER_HUB_USER:-}
+      DOCKER_HUB_TOKEN: ${DOCKER_HUB_TOKEN:-}
+      TRIVY_USERNAME: ${DOCKER_HUB_USER:-}
+      TRIVY_PASSWORD: ${DOCKER_HUB_TOKEN:-}
     volumes:
       - trivy-cache:/tmp                   # Trivy DBs are ~700MB+ uncompressed; volume avoids tmpfs size limits
     depends_on:
