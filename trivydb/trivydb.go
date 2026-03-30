@@ -50,6 +50,8 @@ type Manager struct {
 	trivyPath string
 
 	ready      atomic.Bool
+	hasVulnDB  atomic.Bool  // true if vuln DB was successfully restored
+	hasJavaDB  atomic.Bool  // true if java DB was successfully restored
 	lastUpdate atomic.Int64 // unix timestamp of last successful refresh
 
 	cancel context.CancelFunc
@@ -132,6 +134,16 @@ func (m *Manager) Ready() bool {
 	return m.ready.Load()
 }
 
+// HasVulnDB returns true if the vulnerability DB is available locally.
+func (m *Manager) HasVulnDB() bool {
+	return m.hasVulnDB.Load()
+}
+
+// HasJavaDB returns true if the Java DB is available locally.
+func (m *Manager) HasJavaDB() bool {
+	return m.hasJavaDB.Load()
+}
+
 // DBAge returns the time since the last successful DB refresh.
 func (m *Manager) DBAge() time.Duration {
 	ts := m.lastUpdate.Load()
@@ -149,10 +161,11 @@ func (m *Manager) initialRestore(ctx context.Context) error {
 		subDir  string
 		dlFlag  string
 		logName string
+		ready   *atomic.Bool // set to true when this DB is available
 	}
 	dbs := []dbSpec{
-		{vulnDBKey, "db", "--download-db-only", "vuln-db"},
-		{javaDBKey, "java-db", "--download-java-db-only", "java-db"},
+		{vulnDBKey, "db", "--download-db-only", "vuln-db", &m.hasVulnDB},
+		{javaDBKey, "java-db", "--download-java-db-only", "java-db", &m.hasJavaDB},
 	}
 
 	for _, db := range dbs {
@@ -170,6 +183,7 @@ func (m *Manager) initialRestore(ctx context.Context) error {
 			} else {
 				slog.Info("trivydb: restored from S3",
 					"db", db.logName, "duration", time.Since(start).Round(time.Millisecond))
+				db.ready.Store(true)
 				continue
 			}
 		} else {
@@ -185,6 +199,7 @@ func (m *Manager) initialRestore(ctx context.Context) error {
 		}
 		slog.Info("trivydb: downloaded from upstream",
 			"db", db.logName, "duration", time.Since(start).Round(time.Millisecond))
+		db.ready.Store(true)
 
 		// Upload to S3 for next cold start
 		go m.uploadDB(context.Background(), db.s3Key, db.subDir, db.logName)

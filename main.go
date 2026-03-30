@@ -644,15 +644,21 @@ func handleBadgeJSON(w http.ResponseWriter, r *http.Request) {
 
 // trivyScanOpts returns scanner options that use the managed Trivy DB cache
 // when available, or no options when the manager is inactive.
+// Only skips DB updates for databases that were actually restored successfully.
 func trivyScanOpts() []scanner.ScanOption {
 	if trivyDBManager == nil || !trivyDBManager.Ready() {
 		return nil
 	}
-	return []scanner.ScanOption{
+	opts := []scanner.ScanOption{
 		scanner.WithCacheDir(trivyDBManager.CacheDir()),
-		scanner.WithSkipDBUpdate(),
-		scanner.WithSkipJavaDBUpdate(),
 	}
+	if trivyDBManager.HasVulnDB() {
+		opts = append(opts, scanner.WithSkipDBUpdate())
+	}
+	if trivyDBManager.HasJavaDB() {
+		opts = append(opts, scanner.WithSkipJavaDBUpdate())
+	}
+	return opts
 }
 
 func handleScanImage(w http.ResponseWriter, r *http.Request) {
