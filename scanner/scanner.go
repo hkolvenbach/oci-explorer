@@ -123,9 +123,55 @@ type TargetSummary struct {
 	Count  int    `json:"count"`
 }
 
+// scanConfig holds optional configuration for a scan.
+type scanConfig struct {
+	cacheDir       string
+	skipDBUpdate   bool
+	skipJavaUpdate bool
+}
+
+// ScanOption configures a scan.
+type ScanOption func(*scanConfig)
+
+// WithCacheDir sets the Trivy --cache-dir flag.
+func WithCacheDir(dir string) ScanOption {
+	return func(c *scanConfig) { c.cacheDir = dir }
+}
+
+// WithSkipDBUpdate adds --skip-db-update to prevent per-scan DB downloads.
+func WithSkipDBUpdate() ScanOption {
+	return func(c *scanConfig) { c.skipDBUpdate = true }
+}
+
+// WithSkipJavaDBUpdate adds --skip-java-db-update to prevent per-scan Java DB downloads.
+func WithSkipJavaDBUpdate() ScanOption {
+	return func(c *scanConfig) { c.skipJavaUpdate = true }
+}
+
+// trivyArgs builds the Trivy CLI arguments from a scanConfig plus any extra flags.
+func trivyArgs(cfg scanConfig, extra ...string) []string {
+	args := []string{"image"}
+	args = append(args, extra...)
+	args = append(args, "--scanners", "vuln")
+	if cfg.cacheDir != "" {
+		args = append(args, "--cache-dir", cfg.cacheDir)
+	}
+	if cfg.skipDBUpdate {
+		args = append(args, "--skip-db-update")
+	}
+	if cfg.skipJavaUpdate {
+		args = append(args, "--skip-java-db-update")
+	}
+	return args
+}
+
 // ScanImage runs trivy against the given image reference and returns processed results.
 // Only one Trivy process runs at a time; additional callers block until the semaphore is available.
-func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
+func ScanImage(ctx context.Context, imageRef string, opts ...ScanOption) (*ScanResult, error) {
+	var cfg scanConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	// Check that trivy is installed
 	trivyPath, err := exec.LookPath("trivy")
 	if err != nil {
@@ -145,9 +191,12 @@ func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 	scanCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
+	args := trivyArgs(cfg, "--format", "json", "--quiet")
+	args = append(args, imageRef)
+
 	slog.Info("scan started", "image", imageRef)
 	start := time.Now()
-	cmd := exec.CommandContext(scanCtx, trivyPath, "image", "--format", "json", "--quiet", "--scanners", "vuln", imageRef)
+	cmd := exec.CommandContext(scanCtx, trivyPath, args...)
 	output, err := cmd.Output()
 	duration := time.Since(start)
 	if err != nil {
@@ -200,7 +249,11 @@ func extractTrivyMessage(line string) string {
 // ScanImageStream is like ScanImage but streams Trivy's stderr log lines
 // to the caller via onProgress. Each call receives the actual Trivy log
 // message with the timestamp stripped.
-func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg string)) (*ScanResult, error) {
+func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg string), opts ...ScanOption) (*ScanResult, error) {
+	var cfg scanConfig
+	for _, o := range opts {
+		o(&cfg)
+	}
 	trivyPath, err := exec.LookPath("trivy")
 	if err != nil {
 		return nil, fmt.Errorf("trivy is not installed or not in PATH: %w", err)
@@ -220,7 +273,9 @@ func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg s
 	start := time.Now()
 
 	// Run without --quiet so stderr has progress info
-	cmd := exec.CommandContext(scanCtx, trivyPath, "image", "--format", "json", "--scanners", "vuln", imageRef)
+	args := trivyArgs(cfg, "--format", "json")
+	args = append(args, imageRef)
+	cmd := exec.CommandContext(scanCtx, trivyPath, args...)
 
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
