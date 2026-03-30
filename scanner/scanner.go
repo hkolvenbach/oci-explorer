@@ -237,10 +237,15 @@ func extractTrivyMessage(line string) string {
 		return ""
 	}
 	// Trivy log format: "2026-03-29T12:34:52+02:00\tINFO\t[component] message\tkey=val"
-	// Strip timestamp and level prefix, return the rest
+	// Strip timestamp and level prefix, and trailing key=value metadata
 	parts := strings.SplitN(line, "\t", 3)
 	if len(parts) >= 3 {
-		return strings.TrimSpace(parts[2])
+		msg := parts[2]
+		// Trailing tab-separated fields are key=value metadata (e.g. "elapsed=10s")
+		if i := strings.IndexByte(msg, '\t'); i >= 0 {
+			msg = msg[:i]
+		}
+		return strings.TrimSpace(msg)
 	}
 	// If no tabs (unexpected format), return the whole line
 	return line
