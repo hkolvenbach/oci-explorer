@@ -70,7 +70,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area", "textMode": "auto" },
       "targets": [
         {
-          "expr": "sum(oci_http_requests_total{app=\"$app\"})",
+          "expr": "sum(increase(oci_http_requests_total{app=\"$app\"}[$__range]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -176,7 +176,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area", "textMode": "auto" },
       "targets": [
         {
-          "expr": "sum(oci_http_requests_total{app=\"$app\", route=\"/api/inspect\", status=\"200\"})",
+          "expr": "sum(increase(oci_http_requests_total{app=\"$app\", route=\"/api/inspect\", status=\"200\"}[$__range]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -198,7 +198,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background", "graphMode": "area", "textMode": "auto" },
       "targets": [
         {
-          "expr": "sum(oci_http_requests_total{app=\"$app\", route=\"/api/scan\", status=\"200\"})",
+          "expr": "sum(increase(oci_http_requests_total{app=\"$app\", route=\"/api/scan\", status=\"200\"}[$__range]))",
           "legendFormat": "",
           "refId": "A"
         }
@@ -336,7 +336,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (route) (oci_http_requests_total{app=\"$app\", status=\"200\"})",
+          "expr": "sum by (route) (increase(oci_http_requests_total{app=\"$app\", status=\"200\"}[$__range]))",
           "legendFormat": "{{ route }}",
           "refId": "A"
         }
@@ -365,7 +365,7 @@
       "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true },
       "targets": [
         {
-          "expr": "sort_desc(sum by (route) (oci_http_requests_total{app=\"$app\", status=\"200\"}))",
+          "expr": "sort_desc(sum by (route) (increase(oci_http_requests_total{app=\"$app\", status=\"200\"}[$__range])))",
           "legendFormat": "{{ route }}",
           "refId": "A"
         }
