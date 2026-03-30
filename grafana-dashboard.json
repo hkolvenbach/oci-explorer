@@ -396,12 +396,12 @@
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (registry, le) (rate(oci_registry_fetch_duration_seconds_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (registry, le) (increase(oci_registry_fetch_duration_seconds_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "{{ registry }} p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (registry, le) (rate(oci_registry_fetch_duration_seconds_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (registry, le) (increase(oci_registry_fetch_duration_seconds_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "{{ registry }} p95",
           "refId": "B"
         }
@@ -424,7 +424,7 @@
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum by (registry, le) (rate(oci_inspect_duration_seconds_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (registry, le) (increase(oci_inspect_duration_seconds_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "{{ registry }}",
           "refId": "A"
         }
@@ -447,12 +447,12 @@
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (registry, le) (rate(oci_image_size_bytes_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (registry, le) (increase(oci_image_size_bytes_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "{{ registry }} p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (registry, le) (rate(oci_image_size_bytes_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (registry, le) (increase(oci_image_size_bytes_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "{{ registry }} p95",
           "refId": "B"
         }
@@ -487,17 +487,17 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(oci_scan_duration_seconds_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (increase(oci_scan_duration_seconds_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(oci_scan_duration_seconds_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (increase(oci_scan_duration_seconds_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(oci_scan_duration_seconds_bucket{app=\"$app\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(oci_scan_duration_seconds_bucket{app=\"$app\"}[1h])))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -512,7 +512,7 @@
       "fieldConfig": {
         "defaults": {
           "custom": { "lineWidth": 2, "fillOpacity": 20 },
-          "unit": "ops",
+          "unit": "short",
           "color": { "mode": "fixed", "fixedColor": "orange" }
         },
         "overrides": []
@@ -520,8 +520,8 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "single" } },
       "targets": [
         {
-          "expr": "sum(rate(oci_scan_duration_seconds_count{app=\"$app\"}[5m]))",
-          "legendFormat": "scans/s",
+          "expr": "sum(increase(oci_scan_duration_seconds_count{app=\"$app\"}[1h]))",
+          "legendFormat": "scans/hr",
           "refId": "A"
         }
       ]
