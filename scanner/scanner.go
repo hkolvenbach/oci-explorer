@@ -11,7 +11,16 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 )
+
+var scanDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "oci_scan_duration_seconds",
+	Help:    "Time to complete a Trivy vulnerability scan.",
+	Buckets: []float64{1, 5, 10, 30, 60, 120, 300},
+})
 
 // verbose controls whether verbose logging is enabled
 var verbose bool
@@ -161,6 +170,7 @@ func ScanImage(ctx context.Context, imageRef string) (*ScanResult, error) {
 	}
 
 	result := processReport(report)
+	scanDuration.Observe(duration.Seconds())
 	slog.Info("scan complete", "image", imageRef, "duration", duration.Round(time.Millisecond), "vulns", result.TotalCount, "targets", len(result.Targets))
 	return result, nil
 }
@@ -249,6 +259,7 @@ func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg s
 	}
 
 	result := processReport(report)
+	scanDuration.Observe(duration.Seconds())
 	slog.Info("scan complete", "image", imageRef, "duration", duration.Round(time.Millisecond), "vulns", result.TotalCount, "targets", len(result.Targets))
 	return result, nil
 }

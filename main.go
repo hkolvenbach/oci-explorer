@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"sync"
 	"os/exec"
 	"runtime"
 	"time"
@@ -43,28 +42,6 @@ var jsonLogs bool
 
 // cacheStore is the global response cache (nil when caching is disabled).
 var cacheStore *cache.Store
-
-// requestCounts tracks total API requests per operation since process start.
-var requestCounts = struct {
-	sync.Mutex
-	m map[string]uint64
-}{m: make(map[string]uint64)}
-
-func countRequest(operation string) {
-	requestCounts.Lock()
-	requestCounts.m[operation]++
-	requestCounts.Unlock()
-}
-
-func getRequestCounts() map[string]uint64 {
-	requestCounts.Lock()
-	defer requestCounts.Unlock()
-	cp := make(map[string]uint64, len(requestCounts.m))
-	for k, v := range requestCounts.m {
-		cp[k] = v
-	}
-	return cp
-}
 
 // Cache TTLs per endpoint type. All keys are SHA256 digest-based;
 // the tag-to-digest resolution (ResolveDigest) runs on every request and is never cached.
@@ -192,12 +169,12 @@ func main() {
 	// API routes
 	logVerbose("Registering API routes...")
 	api := r.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/inspect", handleInspect).Methods("GET", "OPTIONS")
-	api.HandleFunc("/tags", handleListTags).Methods("GET", "OPTIONS")
-	api.HandleFunc("/matching-tags", handleMatchingTags).Methods("GET", "OPTIONS")
-	api.HandleFunc("/sbom", handleDownloadSBOM).Methods("GET", "OPTIONS")
-	api.HandleFunc("/vex", handleFetchVEX).Methods("GET", "OPTIONS")
-	api.HandleFunc("/scan", handleScanImage).Methods("GET", "OPTIONS")
+	api.HandleFunc("/inspect", instrumentHandler("/api/inspect", handleInspect)).Methods("GET", "OPTIONS")
+	api.HandleFunc("/tags", instrumentHandler("/api/tags", handleListTags)).Methods("GET", "OPTIONS")
+	api.HandleFunc("/matching-tags", instrumentHandler("/api/matching-tags", handleMatchingTags)).Methods("GET", "OPTIONS")
+	api.HandleFunc("/sbom", instrumentHandler("/api/sbom", handleDownloadSBOM)).Methods("GET", "OPTIONS")
+	api.HandleFunc("/vex", instrumentHandler("/api/vex", handleFetchVEX)).Methods("GET", "OPTIONS")
+	api.HandleFunc("/scan", instrumentHandler("/api/scan", handleScanImage)).Methods("GET", "OPTIONS")
 	api.HandleFunc("/health", handleHealth).Methods("GET")
 	api.HandleFunc("/openapi.yaml", docsHandler.ServeOpenAPISpec).Methods("GET")
 
@@ -236,8 +213,8 @@ func main() {
 	}
 
 	// Badge routes
-	r.HandleFunc("/badge/score.svg", handleBadgeSVG).Methods("GET")
-	r.HandleFunc("/badge/score.json", handleBadgeJSON).Methods("GET")
+	r.HandleFunc("/badge/score.svg", instrumentHandler("/badge/score.svg", handleBadgeSVG)).Methods("GET")
+	r.HandleFunc("/badge/score.json", instrumentHandler("/badge/score.json", handleBadgeJSON)).Methods("GET")
 	logVerbose("  - GET /badge/score.svg")
 	logVerbose("  - GET /badge/score.json")
 
@@ -245,7 +222,7 @@ func main() {
 	logVerbose("Setting up documentation file server...")
 	logVerbose("  - GET /docs/")
 	logVerbose("  - GET /docs/{file}")
-	r.PathPrefix("/docs/").HandlerFunc(docsHandler.ServeDocs)
+	r.PathPrefix("/docs/").HandlerFunc(instrumentHandler("/docs", docsHandler.ServeDocs))
 
 	// Serve embedded web files with cache-busting headers for HTML
 	logVerbose("Setting up embedded web file server...")
@@ -254,7 +231,7 @@ func main() {
 		log.Fatal(err)
 	}
 	webFileServer := http.FileServer(http.FS(webContent))
-	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	r.PathPrefix("/").HandlerFunc(instrumentHandler("frontend", func(w http.ResponseWriter, req *http.Request) {
 		// Vite hashed assets (e.g. /assets/index-Ab12Cd.js) are immutable
 		if len(req.URL.Path) > 8 && req.URL.Path[:8] == "/assets/" {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -263,7 +240,7 @@ func main() {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
 		webFileServer.ServeHTTP(w, req)
-	})
+	}))
 
 	// CORS middleware
 	logVerbose("Applying CORS middleware...")
@@ -319,7 +296,6 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"version":        Version,
 		"trivyAvailable": trivyErr == nil,
 		"cacheEnabled":   cacheStore != nil,
-		"requests":       getRequestCounts(),
 	}
 
 	if cacheStore != nil {
@@ -338,7 +314,6 @@ func handleInspect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	countRequest("inspect")
 	slog.Info("inspect", "image", imageRef)
 	slog.Debug("inspect", "image", imageRef, "remote_addr", r.RemoteAddr)
 
@@ -371,7 +346,6 @@ func handleDownloadSBOM(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	countRequest("sbom")
 	slog.Info("sbom download", "repository", repo, "digest", digest)
 	slog.Debug("sbom download", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
@@ -426,7 +400,6 @@ func handleFetchVEX(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	countRequest("vex")
 	slog.Info("vex fetch", "repository", repo, "digest", digest)
 	slog.Debug("vex fetch", "repository", repo, "digest", digest, "remote_addr", r.RemoteAddr)
 
@@ -473,7 +446,6 @@ func handleListTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	countRequest("tags")
 	logVerbose("Listing tags for repository: %s", repo)
 
 	ref, err := name.NewRepository(repo)
@@ -514,7 +486,6 @@ func handleMatchingTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	countRequest("matching-tags")
 	slog.Info("matching-tags", "image", imageRef)
 	slog.Debug("matching-tags", "image", imageRef, "remote_addr", r.RemoteAddr)
 
@@ -599,8 +570,6 @@ func handleBadgeSVG(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	countRequest("badge")
-
 	result, err := computeScoreForImage(r, imageRef)
 	if err != nil {
 		slog.Warn("badge score failed", "image", imageRef, "error", err)
@@ -624,8 +593,6 @@ func handleBadgeJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	countRequest("badge")
-
 	result, err := computeScoreForImage(r, imageRef)
 	if err != nil {
 		slog.Warn("badge score failed", "image", imageRef, "error", err)
@@ -647,8 +614,6 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 		writeBadRequest(w, "image parameter is required")
 		return
 	}
-
-	countRequest("scan")
 
 	force := r.URL.Query().Get("force") == "1"
 	peek := r.URL.Query().Get("peek") == "1"

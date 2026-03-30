@@ -8,7 +8,7 @@
       {#if appState.version}<span class="text-slate-600">{appState.version}</span> |&nbsp;{/if}<a href="/docs/" class="text-slate-400 hover:text-slate-300">API Documentation</a>
     </div>
     <div class="text-slate-600">
-      Free &amp; open-source. No data is collected or stored. Provided as-is, no warranty. <a href="https://github.com/hkolvenbach/oci-explorer" class="text-slate-500 hover:text-slate-400" target="_blank" rel="noopener noreferrer">GitHub</a>
+      Free &amp; open-source. Provided as-is, no warranty. <a href="https://github.com/hkolvenbach/oci-explorer" class="text-slate-500 hover:text-slate-400" target="_blank" rel="noopener noreferrer">GitHub</a>
     </div>
   </div>
 </footer>
