@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/hkolvenbach/oci-explorer/registry"
 	"github.com/hkolvenbach/oci-explorer/scanner"
 	"github.com/hkolvenbach/oci-explorer/score"
+	"github.com/hkolvenbach/oci-explorer/trivydb"
 )
 
 //go:embed web/dist/*
@@ -42,6 +44,9 @@ var jsonLogs bool
 
 // cacheStore is the global response cache (nil when caching is disabled).
 var cacheStore *cache.Store
+
+// trivyDBManager is the global Trivy DB cache manager (nil when disabled).
+var trivyDBManager *trivydb.Manager
 
 // Cache TTLs per endpoint type. All keys are SHA256 digest-based;
 // the tag-to-digest resolution (ResolveDigest) runs on every request and is never cached.
@@ -160,6 +165,21 @@ func main() {
 		slog.Info("response cache enabled", "bucket", bucket)
 	}
 
+	// Initialize Trivy DB S3 cache if response cache is enabled.
+	if cacheStore != nil {
+		cacheDir := filepath.Join(os.TempDir(), "trivy-cache")
+		mgr, err := trivydb.New(context.Background(), os.Getenv("CACHE_S3_BUCKET"), cacheDir)
+		if err != nil {
+			slog.Warn("trivy DB cache disabled", "error", err)
+		} else {
+			if err := mgr.Start(context.Background()); err != nil {
+				slog.Warn("trivy DB restore failed, scans will use upstream", "error", err)
+			}
+			trivyDBManager = mgr
+			defer mgr.Stop()
+		}
+	}
+
 	// Create docs handler (embed.FS satisfies fs.FS)
 	docsHandler := docshandler.New(docsFS, verbose)
 
@@ -258,6 +278,9 @@ func main() {
 	if cacheStore != nil {
 		fmt.Printf("│  Cache:    %-37s│\n", os.Getenv("CACHE_S3_BUCKET"))
 	}
+	if trivyDBManager != nil {
+		fmt.Println("│  Trivy DB: S3-cached (hourly refresh)            │")
+	}
 	if metricsPort != "" {
 		fmt.Printf("│  Metrics:  http://localhost:%-20s│\n", metricsPort+"/metrics")
 	}
@@ -300,6 +323,13 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	if cacheStore != nil {
 		data["cache"] = cache.Stats()
+	}
+
+	if trivyDBManager != nil {
+		data["trivyDBCached"] = trivyDBManager.Ready()
+		if age := trivyDBManager.DBAge(); age > 0 {
+			data["trivyDBAge"] = age.Round(time.Second).String()
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -607,6 +637,19 @@ func handleBadgeJSON(w http.ResponseWriter, r *http.Request) {
 	writeBytes(w, badge.RenderJSON(*result))
 }
 
+// trivyScanOpts returns scanner options that use the managed Trivy DB cache
+// when available, or no options when the manager is inactive.
+func trivyScanOpts() []scanner.ScanOption {
+	if trivyDBManager == nil || !trivyDBManager.Ready() {
+		return nil
+	}
+	return []scanner.ScanOption{
+		scanner.WithCacheDir(trivyDBManager.CacheDir()),
+		scanner.WithSkipDBUpdate(),
+		scanner.WithSkipJavaDBUpdate(),
+	}
+}
+
 func handleScanImage(w http.ResponseWriter, r *http.Request) {
 	imageRef := r.URL.Query().Get("image")
 	if imageRef == "" {
@@ -664,7 +707,7 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 				// Cache miss — fall through to streaming path
 			} else {
 				result, err := cacheStore.GetOrCompute(r.Context(), "scan/"+digest, scanCacheTTL, func() ([]byte, error) {
-					scanResult, err := scanner.ScanImage(r.Context(), imageRef)
+					scanResult, err := scanner.ScanImage(r.Context(), imageRef, trivyScanOpts()...)
 					if err != nil {
 						return nil, err
 					}
@@ -701,7 +744,7 @@ func handleScanImage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Non-streaming uncached/force path
-	scanResult, err := scanner.ScanImage(r.Context(), imageRef)
+	scanResult, err := scanner.ScanImage(r.Context(), imageRef, trivyScanOpts()...)
 	if err != nil {
 		slog.Error("scan failed", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond), "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -753,7 +796,7 @@ func handleScanStream(w http.ResponseWriter, r *http.Request, imageRef string, s
 	scanResult, err := scanner.ScanImageStream(r.Context(), imageRef, func(msg string) {
 		msgJSON, _ := json.Marshal(map[string]string{"message": msg})
 		sendSSE("progress", string(msgJSON))
-	})
+	}, trivyScanOpts()...)
 	if err != nil {
 		slog.Error("scan failed", "image", imageRef, "duration", time.Since(start).Round(time.Millisecond), "error", err)
 		errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
