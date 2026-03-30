@@ -31,7 +31,7 @@ const (
 	vulnDBKey = "trivy-db/vuln-db.tar.gz"
 	javaDBKey = "trivy-db/java-db.tar.gz"
 
-	refreshInterval = 1 * time.Hour
+	refreshInterval = 6 * time.Hour
 	trivyTimeout    = 5 * time.Minute
 )
 
