@@ -166,17 +166,22 @@ func main() {
 	}
 
 	// Initialize Trivy DB S3 cache if response cache is enabled.
+	// Starts in background so the HTTP server is available immediately —
+	// inspect/SBOM/VEX requests don't need Trivy. Scans fall back to
+	// Trivy's own DB download until the manager reports Ready().
 	if cacheStore != nil {
 		cacheDir := filepath.Join(os.TempDir(), "trivy-cache")
 		mgr, err := trivydb.New(context.Background(), os.Getenv("CACHE_S3_BUCKET"), cacheDir)
 		if err != nil {
 			slog.Warn("trivy DB cache disabled", "error", err)
 		} else {
-			if err := mgr.Start(context.Background()); err != nil {
-				slog.Warn("trivy DB restore failed, scans will use upstream", "error", err)
-			}
 			trivyDBManager = mgr
 			defer mgr.Stop()
+			go func() {
+				if err := mgr.Start(context.Background()); err != nil {
+					slog.Warn("trivy DB restore failed, scans will use upstream", "error", err)
+				}
+			}()
 		}
 	}
 
