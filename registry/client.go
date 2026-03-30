@@ -14,13 +14,36 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/sync/errgroup"
+)
+
+var (
+	registryFetchDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "oci_registry_fetch_duration_seconds",
+		Help:    "Time to fetch an image descriptor from a container registry.",
+		Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30},
+	}, []string{"registry"})
+
+	inspectDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "oci_inspect_duration_seconds",
+		Help:    "Total time to inspect an image (fetch, processing, and referrers).",
+		Buckets: []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30},
+	}, []string{"registry"})
+
+	imageSizeBytes = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "oci_image_size_bytes",
+		Help:    "Total image size in bytes (config + layers).",
+		Buckets: []float64{1e6, 5e6, 10e6, 50e6, 100e6, 250e6, 500e6, 1e9, 2e9, 5e9},
+	}, []string{"registry"})
 )
 
 // verbose controls whether verbose logging is enabled
@@ -230,16 +253,20 @@ func ResolveDigest(imageRef string) (string, error) {
 
 // InspectImage fetches and parses image information from a registry
 func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
+	inspectStart := time.Now()
 	logVerbose("Parsing image reference: %s", imageRef)
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
 		logVerbose("Failed to parse reference: %v", err)
 		return nil, fmt.Errorf("invalid image reference: %w", err)
 	}
-	logVerbose("Parsed reference - Registry: %s, Repository: %s", ref.Context().Registry.Name(), ref.Context().RepositoryStr())
+	reg := ref.Context().Registry.Name()
+	logVerbose("Parsed reference - Registry: %s, Repository: %s", reg, ref.Context().RepositoryStr())
 
 	logVerbose("Fetching image descriptor from registry...")
+	fetchStart := time.Now()
 	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(c.keychain))
+	registryFetchDuration.WithLabelValues(reg).Observe(time.Since(fetchStart).Seconds())
 	if err != nil {
 		logVerbose("Failed to fetch descriptor: %v", err)
 		return nil, fmt.Errorf("failed to fetch image: %w", err)
@@ -283,6 +310,16 @@ func (c *Client) InspectImage(imageRef string) (*ImageInfo, error) {
 	// Only show the tag that was requested, not all tags in the repository
 	// (fetching all tags is expensive and usually not what users want)
 	logVerbose("Using requested tag: %s", info.Tag)
+
+	inspectDuration.WithLabelValues(reg).Observe(time.Since(inspectStart).Seconds())
+	if info.Manifest != nil {
+		var totalSize int64
+		for _, layer := range info.Manifest.Layers {
+			totalSize += layer.Size
+		}
+		totalSize += info.Manifest.Config.Size
+		imageSizeBytes.WithLabelValues(reg).Observe(float64(totalSize))
+	}
 
 	logVerbose("Image inspection complete")
 	return info, nil

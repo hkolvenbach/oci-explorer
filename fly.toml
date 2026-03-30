@@ -34,6 +34,10 @@ primary_region = 'fra'
     method = 'GET'
     path = '/api/health'
 
+[metrics]
+  port = 9090
+  path = "/metrics"
+
 [[vm]]
   memory = '512mb'
   cpus = 1
