@@ -295,10 +295,15 @@ func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg s
 		return nil, fmt.Errorf("failed to start trivy: %w", err)
 	}
 
-	// Stream stderr line-by-line
+	// Stream stderr line-by-line, keeping last few lines for error reporting.
+	var lastLines [5]string
+	var lineIdx int
 	sc := bufio.NewScanner(stderr)
 	for sc.Scan() {
-		if msg := extractTrivyMessage(sc.Text()); msg != "" {
+		raw := sc.Text()
+		lastLines[lineIdx%len(lastLines)] = raw
+		lineIdx++
+		if msg := extractTrivyMessage(raw); msg != "" {
 			onProgress(msg)
 		}
 	}
@@ -306,11 +311,18 @@ func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg s
 	err = cmd.Wait()
 	duration := time.Since(start)
 	if err != nil {
+		// Build tail of stderr for diagnostics.
+		var tail string
+		n := min(lineIdx, len(lastLines))
+		start := lineIdx - n
+		for i := start; i < lineIdx; i++ {
+			tail += lastLines[i%len(lastLines)] + "\n"
+		}
 		if scanCtx.Err() == context.DeadlineExceeded {
-			slog.Error("scan timed out", "image", imageRef, "duration", duration.Round(time.Millisecond))
+			slog.Error("scan timed out", "image", imageRef, "duration", duration.Round(time.Millisecond), "stderr_tail", tail)
 			return nil, fmt.Errorf("trivy scan timed out after 5 minutes")
 		}
-		slog.Error("scan failed", "image", imageRef, "duration", duration.Round(time.Millisecond), "error", err)
+		slog.Error("scan failed", "image", imageRef, "duration", duration.Round(time.Millisecond), "error", err, "stderr_tail", tail)
 		return nil, fmt.Errorf("trivy scan failed: %w", err)
 	}
 
