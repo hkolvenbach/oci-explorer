@@ -660,12 +660,13 @@ func trivyScanOpts() []scanner.ScanOption {
 	if trivyDBManager.HasVulnDB() {
 		opts = append(opts, scanner.WithSkipDBUpdate())
 	}
-	// Always skip java-db download in scans. If the java-db is present in
-	// the managed cache Trivy uses it; if not, Trivy gracefully skips Java
-	// vulnerability detection. Without this flag Trivy proactively downloads
-	// the ~300 MB java-db OCI artifact even for non-Java images, eating into
-	// the 5-minute scan timeout.
-	opts = append(opts, scanner.WithSkipJavaDBUpdate())
+	// Only skip java-db download if it's actually present in the managed
+	// cache. Trivy fatally errors if --skip-java-db-update is passed but
+	// the java-db has never been downloaded ("cannot be specified on the
+	// first run"). If missing, Trivy downloads it during the scan.
+	if trivyDBManager.HasJavaDB() {
+		opts = append(opts, scanner.WithSkipJavaDBUpdate())
+	}
 	return opts
 }
 
