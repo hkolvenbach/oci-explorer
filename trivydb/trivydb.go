@@ -100,7 +100,9 @@ func newWithClient(client s3API, bucket, cacheDir, trivyPath string) *Manager {
 }
 
 // Start restores databases from S3 (falling back to upstream) and launches the
-// hourly refresh goroutine. It blocks until the initial restore is complete.
+// hourly refresh goroutine. It blocks only until the vuln-db is available (the
+// critical path for scans). The java-db is downloaded in the background since
+// it is optional and the upstream OCI artifact is ~800 MB.
 func (m *Manager) Start(ctx context.Context) error {
 	refreshCtx, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
@@ -156,60 +158,64 @@ func (m *Manager) DBAge() time.Duration {
 	return time.Since(time.Unix(ts, 0))
 }
 
-// initialRestore tries to restore both DBs from S3. If a key is missing,
-// it downloads from Trivy's upstream and uploads to S3 for next time.
+// initialRestore restores the vuln-db synchronously (required for scans) and
+// kicks off the java-db restore in the background (optional, ~800 MB from
+// upstream). Returns as soon as the vuln-db is available so scans can start.
 func (m *Manager) initialRestore(ctx context.Context) error {
-	type dbSpec struct {
-		s3Key   string
-		subDir  string
-		dlFlag  string
-		logName string
-		ready   *atomic.Bool // set to true when this DB is available
-	}
-	dbs := []dbSpec{
-		{vulnDBKey, "db", "--download-db-only", "vuln-db", &m.hasVulnDB},
-		{javaDBKey, "java-db", "--download-java-db-only", "java-db", &m.hasJavaDB},
+	// Vuln-db: restore synchronously — scans cannot start without it.
+	if err := m.restoreDB(ctx, vulnDBKey, "db", "--download-db-only", "vuln-db", &m.hasVulnDB); err != nil {
+		return err
 	}
 
-	for _, db := range dbs {
-		destDir := filepath.Join(m.cacheDir, db.subDir)
-		if err := os.MkdirAll(destDir, 0o755); err != nil {
-			return fmt.Errorf("trivydb: create %s dir: %w", db.subDir, err)
-		}
+	// Java-db: restore in the background — it's optional and the upstream
+	// OCI artifact is ~800 MB which can take minutes to download.
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		_ = m.restoreDB(ctx, javaDBKey, "java-db", "--download-java-db-only", "java-db", &m.hasJavaDB)
+	}()
 
-		start := time.Now()
-		rc, err := m.downloadFromS3(ctx, db.s3Key)
-		if err == nil {
-			err = extractTar(rc, m.cacheDir)
-			rc.Close()
-			if err != nil {
-				slog.Warn("trivydb: S3 restore extract failed, falling back to upstream",
-					"db", db.logName, "error", err)
-			} else {
-				slog.Info("trivydb: restored from S3",
-					"db", db.logName, "duration", time.Since(start).Round(time.Millisecond))
-				db.ready.Store(true)
-				continue
-			}
+	return nil
+}
+
+// restoreDB restores a single DB from S3, falling back to upstream download.
+func (m *Manager) restoreDB(ctx context.Context, s3Key, subDir, dlFlag, logName string, ready *atomic.Bool) error {
+	destDir := filepath.Join(m.cacheDir, subDir)
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("trivydb: create %s dir: %w", subDir, err)
+	}
+
+	start := time.Now()
+	rc, err := m.downloadFromS3(ctx, s3Key)
+	if err == nil {
+		err = extractTar(rc, m.cacheDir)
+		rc.Close()
+		if err != nil {
+			slog.Warn("trivydb: S3 restore extract failed, falling back to upstream",
+				"db", logName, "error", err)
 		} else {
-			slog.Info("trivydb: S3 miss, downloading from upstream", "db", db.logName)
+			slog.Info("trivydb: restored from S3",
+				"db", logName, "duration", time.Since(start).Round(time.Millisecond))
+			ready.Store(true)
+			return nil
 		}
-
-		// Fall back to upstream
-		start = time.Now()
-		if err := m.trivyDownload(ctx, db.dlFlag); err != nil {
-			slog.Warn("trivydb: upstream download failed",
-				"db", db.logName, "error", err)
-			continue // non-fatal: Trivy will download on first scan
-		}
-		slog.Info("trivydb: downloaded from upstream",
-			"db", db.logName, "duration", time.Since(start).Round(time.Millisecond))
-		db.ready.Store(true)
-
-		// Upload to S3 for next cold start
-		go m.uploadDB(context.Background(), db.s3Key, db.subDir, db.logName)
+	} else {
+		slog.Info("trivydb: S3 miss, downloading from upstream", "db", logName)
 	}
 
+	// Fall back to upstream
+	start = time.Now()
+	if err := m.trivyDownload(ctx, dlFlag); err != nil {
+		slog.Warn("trivydb: upstream download failed",
+			"db", logName, "error", err)
+		return nil // non-fatal: scans work without java-db
+	}
+	slog.Info("trivydb: downloaded from upstream",
+		"db", logName, "duration", time.Since(start).Round(time.Millisecond))
+	ready.Store(true)
+
+	// Upload to S3 for next cold start
+	go m.uploadDB(context.Background(), s3Key, subDir, logName)
 	return nil
 }
 
