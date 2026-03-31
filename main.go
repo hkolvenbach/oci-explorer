@@ -174,7 +174,7 @@ func main() {
 	// Trivy's own DB download until the manager reports Ready().
 	if cacheStore != nil {
 		cacheDir := filepath.Join(os.TempDir(), "trivy-cache")
-		mgr, err := trivydb.New(context.Background(), os.Getenv("CACHE_S3_BUCKET"), cacheDir)
+		mgr, err := trivydb.New(context.Background(), os.Getenv("CACHE_S3_BUCKET"), cacheDir, scanner.TrivySem)
 		if err != nil {
 			slog.Warn("trivy DB cache disabled", "error", err)
 		} else {
@@ -647,7 +647,9 @@ func handleBadgeJSON(w http.ResponseWriter, r *http.Request) {
 
 // trivyScanOpts returns scanner options that use the managed Trivy DB cache
 // when available, or no options when the manager is inactive.
-// Only skips DB updates for databases that were actually restored successfully.
+// DB lifecycle is owned by the manager (initialRestore + refresh); scans
+// must never download databases themselves to avoid 5-minute scan timeouts
+// on bandwidth-constrained instances.
 func trivyScanOpts() []scanner.ScanOption {
 	if trivyDBManager == nil || !trivyDBManager.Ready() {
 		return nil
@@ -658,9 +660,12 @@ func trivyScanOpts() []scanner.ScanOption {
 	if trivyDBManager.HasVulnDB() {
 		opts = append(opts, scanner.WithSkipDBUpdate())
 	}
-	if trivyDBManager.HasJavaDB() {
-		opts = append(opts, scanner.WithSkipJavaDBUpdate())
-	}
+	// Always skip java-db download in scans. If the java-db is present in
+	// the managed cache Trivy uses it; if not, Trivy gracefully skips Java
+	// vulnerability detection. Without this flag Trivy proactively downloads
+	// the ~300 MB java-db OCI artifact even for non-Java images, eating into
+	// the 5-minute scan timeout.
+	opts = append(opts, scanner.WithSkipJavaDBUpdate())
 	return opts
 }
 

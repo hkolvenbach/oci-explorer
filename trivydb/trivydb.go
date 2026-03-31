@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,7 +33,7 @@ const (
 	javaDBKey = "trivy-db/java-db.tar.gz"
 
 	refreshInterval = 6 * time.Hour
-	trivyTimeout    = 5 * time.Minute
+	trivyTimeout    = 10 * time.Minute // java-db OCI artifact is ~800 MB
 )
 
 // s3API is the subset of the S3 client used by Manager, enabling test mocks.
@@ -48,6 +49,7 @@ type Manager struct {
 	bucket    string
 	cacheDir  string
 	trivyPath string
+	trivySem  chan struct{} // shared with scanner to prevent concurrent Trivy processes
 
 	ready      atomic.Bool
 	hasVulnDB  atomic.Bool  // true if vuln DB was successfully restored
@@ -60,7 +62,7 @@ type Manager struct {
 
 // New creates a Manager backed by the given S3 bucket.
 // cacheDir is the directory Trivy will use as its --cache-dir.
-func New(ctx context.Context, bucket, cacheDir string) (*Manager, error) {
+func New(ctx context.Context, bucket, cacheDir string, trivySem chan struct{}) (*Manager, error) {
 	trivyPath, err := exec.LookPath("trivy")
 	if err != nil {
 		return nil, fmt.Errorf("trivydb: trivy not found: %w", err)
@@ -83,6 +85,7 @@ func New(ctx context.Context, bucket, cacheDir string) (*Manager, error) {
 		bucket:    bucket,
 		cacheDir:  cacheDir,
 		trivyPath: trivyPath,
+		trivySem:  trivySem,
 	}, nil
 }
 
@@ -175,9 +178,11 @@ func (m *Manager) initialRestore(ctx context.Context) error {
 		}
 
 		start := time.Now()
-		data, err := m.downloadFromS3(ctx, db.s3Key)
+		rc, err := m.downloadFromS3(ctx, db.s3Key)
 		if err == nil {
-			if err := extractTar(data, m.cacheDir); err != nil {
+			err = extractTar(rc, m.cacheDir)
+			rc.Close()
+			if err != nil {
 				slog.Warn("trivydb: S3 restore extract failed, falling back to upstream",
 					"db", db.logName, "error", err)
 			} else {
@@ -251,15 +256,23 @@ func (m *Manager) refresh(ctx context.Context) {
 
 	// Download fresh DBs to temp dir
 	for _, db := range dbs {
+		release, err := m.acquireSem(ctx)
+		if err != nil {
+			slog.Error("trivydb: refresh cancelled waiting for semaphore", "error", err)
+			return
+		}
 		dlCtx, cancel := context.WithTimeout(ctx, trivyTimeout)
 		cmd := exec.CommandContext(dlCtx, m.trivyPath, "image", db.dlFlag, "--cache-dir", tmpDir)
+		cmd.Env = envWithoutTrivyCreds()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			cancel()
+			release()
 			slog.Error("trivydb: refresh download failed",
 				"db", db.logName, "error", err, "output", string(output))
 			return // don't partially update
 		}
 		cancel()
+		release()
 	}
 
 	// Upload to S3 and swap into live dir
@@ -269,18 +282,28 @@ func (m *Manager) refresh(ctx context.Context) {
 			// continue anyway — swap the local copy even if S3 upload failed
 		}
 
-		// Swap: remove old, rename new into place
+		// Acquire semaphore during swap to prevent scans from reading
+		// partially-swapped DB files.
+		release, err := m.acquireSem(ctx)
+		if err != nil {
+			slog.Error("trivydb: refresh swap cancelled", "error", err)
+			continue
+		}
+
 		liveDir := filepath.Join(m.cacheDir, db.subDir)
 		tmpSubDir := filepath.Join(tmpDir, db.subDir)
 
 		if err := os.RemoveAll(liveDir); err != nil {
 			slog.Error("trivydb: refresh remove old dir failed", "db", db.logName, "error", err)
+			release()
 			continue
 		}
 		if err := os.Rename(tmpSubDir, liveDir); err != nil {
 			slog.Error("trivydb: refresh swap failed", "db", db.logName, "error", err)
+			release()
 			continue
 		}
+		release()
 	}
 
 	m.lastUpdate.Store(time.Now().Unix())
@@ -289,14 +312,49 @@ func (m *Manager) refresh(ctx context.Context) {
 
 // trivyDownload runs trivy with the given download flag against the manager's cache dir.
 func (m *Manager) trivyDownload(ctx context.Context, flag string) error {
+	release, err := m.acquireSem(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire trivy semaphore: %w", err)
+	}
+	defer release()
+
 	dlCtx, cancel := context.WithTimeout(ctx, trivyTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(dlCtx, m.trivyPath, "image", flag, "--cache-dir", m.cacheDir)
+	cmd.Env = envWithoutTrivyCreds()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s: %s", err, string(output))
 	}
 	return nil
+}
+
+// acquireSem acquires the shared Trivy subprocess semaphore to prevent
+// concurrent Trivy processes from OOMing on memory-constrained hosts.
+func (m *Manager) acquireSem(ctx context.Context) (func(), error) {
+	if m.trivySem == nil {
+		return func() {}, nil
+	}
+	select {
+	case m.trivySem <- struct{}{}:
+		return func() { <-m.trivySem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// envWithoutTrivyCreds returns the current environment with TRIVY_USERNAME and
+// TRIVY_PASSWORD removed. DB downloads access ghcr.io (not Docker Hub) and
+// must use anonymous auth to avoid sending wrong credentials.
+func envWithoutTrivyCreds() []string {
+	var env []string
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "TRIVY_USERNAME=") || strings.HasPrefix(e, "TRIVY_PASSWORD=") {
+			continue
+		}
+		env = append(env, e)
+	}
+	return env
 }
 
 // uploadDB tars and uploads a DB subdirectory from the manager's cache dir to S3.
@@ -306,30 +364,49 @@ func (m *Manager) uploadDB(ctx context.Context, s3Key, subDir, logName string) {
 	}
 }
 
-// uploadDBFrom tars and uploads a DB subdirectory from the given base dir to S3.
+// uploadDBFrom tars a DB subdirectory to a temp file, then uploads to S3.
+// The temp file avoids buffering the entire archive in memory (the java-db
+// can be hundreds of MB) while remaining seekable for S3 checksum computation.
 func (m *Manager) uploadDBFrom(ctx context.Context, s3Key, baseDir, subDir, logName string) error {
 	srcDir := filepath.Join(baseDir, subDir)
-	data, err := tarDir(srcDir, subDir)
+
+	tmp, err := os.CreateTemp("", "trivydb-upload-*.tar.gz")
 	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	if err := tarDirTo(tmp, srcDir, subDir); err != nil {
 		return fmt.Errorf("tar %s: %w", logName, err)
 	}
 
+	if _, err := tmp.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("seek temp file: %w", err)
+	}
+	fi, err := tmp.Stat()
+	if err != nil {
+		return fmt.Errorf("stat temp file: %w", err)
+	}
+
 	_, err = m.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      &m.bucket,
-		Key:         &s3Key,
-		Body:        bytes.NewReader(data),
-		ContentType: ptr("application/gzip"),
+		Bucket:        &m.bucket,
+		Key:           &s3Key,
+		Body:          tmp,
+		ContentLength: ptr(fi.Size()),
+		ContentType:   ptr("application/gzip"),
 	})
 	if err != nil {
 		return fmt.Errorf("S3 put %s: %w", logName, err)
 	}
 
-	slog.Info("trivydb: uploaded to S3", "db", logName, "key", s3Key, "size", len(data))
+	slog.Info("trivydb: uploaded to S3", "db", logName, "key", s3Key, "size", fi.Size())
 	return nil
 }
 
-// downloadFromS3 fetches a key from S3 and returns its contents.
-func (m *Manager) downloadFromS3(ctx context.Context, key string) ([]byte, error) {
+// downloadFromS3 fetches a key from S3 and returns a reader over its body.
+// The caller must close the returned ReadCloser.
+func (m *Manager) downloadFromS3(ctx context.Context, key string) (io.ReadCloser, error) {
 	out, err := m.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &m.bucket,
 		Key:    &key,
@@ -342,17 +419,15 @@ func (m *Manager) downloadFromS3(ctx context.Context, key string) ([]byte, error
 		}
 		return nil, err
 	}
-	defer out.Body.Close()
-	return io.ReadAll(out.Body)
+	return out.Body, nil
 }
 
-// tarDir creates a tar.gz archive of srcDir. Files are stored with paths
+// tarDirTo writes a tar.gz archive of srcDir to w. Files are stored with paths
 // relative to the parent, prefixed with prefix (e.g., "db/trivy.db").
-func tarDir(srcDir, prefix string) ([]byte, error) {
-	var buf bytes.Buffer
-	gw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+func tarDirTo(w io.Writer, srcDir, prefix string) error {
+	gw, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	tw := tar.NewWriter(gw)
 
@@ -398,21 +473,28 @@ func tarDir(srcDir, prefix string) ([]byte, error) {
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	if err := tw.Close(); err != nil {
-		return nil, err
+		return err
 	}
-	if err := gw.Close(); err != nil {
+	return gw.Close()
+}
+
+// tarDir creates a tar.gz archive in memory (used by tests).
+func tarDir(srcDir, prefix string) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := tarDirTo(&buf, srcDir, prefix); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
 }
 
-// extractTar extracts a tar.gz archive into destDir.
-func extractTar(data []byte, destDir string) error {
-	gr, err := gzip.NewReader(bytes.NewReader(data))
+// extractTar extracts a tar.gz archive from r into destDir.
+// Streams directly from the reader without buffering the entire archive.
+func extractTar(r io.Reader, destDir string) error {
+	gr, err := gzip.NewReader(r)
 	if err != nil {
 		return err
 	}
