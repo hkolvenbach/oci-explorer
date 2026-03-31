@@ -37,9 +37,10 @@ func logVerbose(format string, args ...any) {
 	}
 }
 
-// scanSem limits concurrent Trivy processes to 1 to prevent OOM on
+// TrivySem limits concurrent Trivy processes to 1 to prevent OOM on
 // memory-constrained hosts (e.g., 512 MB Fly.io machines).
-var scanSem = make(chan struct{}, 1)
+// Exported so trivydb can coordinate DB downloads with scans.
+var TrivySem = make(chan struct{}, 1)
 
 // TrivyReport is the top-level Trivy JSON output structure.
 type TrivyReport struct {
@@ -181,8 +182,8 @@ func ScanImage(ctx context.Context, imageRef string, opts ...ScanOption) (*ScanR
 
 	// Acquire semaphore — at most 1 concurrent Trivy process
 	select {
-	case scanSem <- struct{}{}:
-		defer func() { <-scanSem }()
+	case TrivySem <- struct{}{}:
+		defer func() { <-TrivySem }()
 	case <-ctx.Done():
 		return nil, fmt.Errorf("scan cancelled while waiting for semaphore: %w", ctx.Err())
 	}
@@ -265,8 +266,8 @@ func ScanImageStream(ctx context.Context, imageRef string, onProgress func(msg s
 	}
 
 	select {
-	case scanSem <- struct{}{}:
-		defer func() { <-scanSem }()
+	case TrivySem <- struct{}{}:
+		defer func() { <-TrivySem }()
 	case <-ctx.Done():
 		return nil, fmt.Errorf("scan cancelled while waiting for semaphore: %w", ctx.Err())
 	}

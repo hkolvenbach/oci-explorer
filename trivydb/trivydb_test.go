@@ -80,7 +80,7 @@ func TestTarExtractRoundTrip(t *testing.T) {
 
 	// Extract to a new directory
 	destRoot := t.TempDir()
-	if err := extractTar(data, destRoot); err != nil {
+	if err := extractTar(bytes.NewReader(data), destRoot); err != nil {
 		t.Fatalf("extractTar: %v", err)
 	}
 
@@ -110,7 +110,7 @@ func TestExtractTarPathTraversal(t *testing.T) {
 	}
 
 	dest := t.TempDir()
-	err := extractTar(buf.Bytes(), dest)
+	err := extractTar(&buf, dest)
 	if err == nil {
 		t.Fatal("expected error for path traversal, got nil")
 	}
@@ -172,11 +172,12 @@ func TestUploadAndRestoreRoundTrip(t *testing.T) {
 	// Download to a new location and extract
 	destDir := t.TempDir()
 	destMgr := newWithClient(mock, "test-bucket", destDir, "/fake/trivy")
-	data, err := destMgr.downloadFromS3(context.Background(), vulnDBKey)
+	rc, err := destMgr.downloadFromS3(context.Background(), vulnDBKey)
 	if err != nil {
 		t.Fatalf("download: %v", err)
 	}
-	if err := extractTar(data, destDir); err != nil {
+	defer rc.Close()
+	if err := extractTar(rc, destDir); err != nil {
 		t.Fatalf("extract: %v", err)
 	}
 
