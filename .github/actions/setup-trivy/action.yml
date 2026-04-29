@@ -1,0 +1,19 @@
+name: Set up Trivy
+description: Install a pinned Trivy release on the runner.
+
+inputs:
+  version:
+    description: 'Trivy version to install (without v prefix)'
+    required: false
+    default: '0.73.0'
+
+runs:
+  using: composite
+  steps:
+    - name: Install Trivy
+      shell: bash
+      env:
+        TRIVY_VERSION: ${{ inputs.version }}
+      run: |
+        curl -sfL "https://raw.githubusercontent.com/aquasecurity/trivy/v${TRIVY_VERSION}/contrib/install.sh" \
+          | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"

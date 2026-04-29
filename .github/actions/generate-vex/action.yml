@@ -1,159 +1,181 @@
 name: Generate OpenVEX document
 description: >
-  Runs govulncheck at symbol-level, classifies vulnerabilities as reachable
-  (called) or not-reachable (imported only), and generates an OpenVEX document.
+  Run govulncheck at symbol-level, classify Go vulnerabilities as reachable
+  (called) or imported-only (not called), and write an OpenVEX document.
+
+  When `bundled-image` is set, also scan the built container with Trivy and
+  add not_affected statements for CVEs in bundled third-party binaries
+  (e.g. Trivy itself) that govulncheck cannot see.
 
 inputs:
   product:
-    description: 'Product identifier for the VEX document (e.g. pkg:oci/name@digest)'
+    description: 'Product identifier for the VEX document (e.g. pkg:oci/name@digest?repository_url=...)'
     required: true
   author:
     description: 'Author of the VEX document'
     required: true
+  output-file:
+    description: 'Path to write the VEX document'
+    required: false
+    default: 'vex.json'
+  bundled-image:
+    description: >
+      Optional full image reference (image@digest) to scan with Trivy for CVEs
+      in bundled third-party binaries. When set, the action errors out if no
+      VEX statements are produced; when unset, an empty result is allowed and
+      a NOASSERTION placeholder statement is written instead.
+    required: false
+    default: ''
+  govulncheck-version:
+    description: 'govulncheck version'
+    required: false
+    default: 'v1.1.4'
+  vexctl-version:
+    description: 'vexctl version'
+    required: false
+    default: 'v0.4.1'
 
 outputs:
   vex-path:
     description: 'Path to the generated VEX JSON file'
-    value: ${{ steps.generate.outputs.vex-path }}
-  called-count:
-    description: 'Number of called (reachable) vulnerabilities'
-    value: ${{ steps.generate.outputs.called-count }}
-  not-called-count:
-    description: 'Number of not-called (imported only) vulnerabilities'
-    value: ${{ steps.generate.outputs.not-called-count }}
+    value: ${{ inputs.output-file }}
+  statement-count:
+    description: 'Number of VEX statements written'
+    value: ${{ steps.generate.outputs.statement-count }}
 
 runs:
   using: composite
   steps:
-    - name: Install VEX tools
+    - name: Install govulncheck and vexctl
       shell: bash
+      env:
+        GOVULNCHECK_VERSION: ${{ inputs.govulncheck-version }}
+        VEXCTL_VERSION: ${{ inputs.vexctl-version }}
       run: |
-        go install golang.org/x/vuln/cmd/govulncheck@latest
-        go install github.com/openvex/vexctl@latest
+        go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+        go install "github.com/openvex/vexctl@${VEXCTL_VERSION}"
 
     - name: Generate VEX document
       id: generate
       shell: bash
+      env:
+        PRODUCT: ${{ inputs.product }}
+        AUTHOR: ${{ inputs.author }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        BUNDLED_IMAGE: ${{ inputs.bundled-image }}
       run: |
-        # Run govulncheck at symbol-level with JSON output
-        govulncheck -format json ./... > govulncheck-output.json || true
+        set -euo pipefail
 
-        PRODUCT="${{ inputs.product }}"
-        AUTHOR="${{ inputs.author }}"
+        # govulncheck exits 0 when no findings, 3 when findings exist; anything
+        # else is a tooling failure and must surface.
+        govulncheck -format json ./... > govulncheck-output.json && GOVULNCHECK_EXIT=0 || GOVULNCHECK_EXIT=$?
+        if [ "$GOVULNCHECK_EXIT" -ne 0 ] && [ "$GOVULNCHECK_EXIT" -ne 3 ]; then
+          echo "::error::govulncheck failed with unexpected exit code $GOVULNCHECK_EXIT"
+          exit 1
+        fi
 
-        # govulncheck JSON output contains streaming messages with .osv and .finding fields.
-        # A "finding" with trace[0].function set means the vulnerable code is CALLED (reachable).
-        # A "finding" without trace[0].function means the package is imported but the
-        # vulnerable function is NOT called. OSV entries without any finding are in
-        # dependencies but not even imported — these are excluded from VEX entirely.
+        # A finding with trace[0].function set means the vulnerable code is
+        # CALLED (reachable). A finding without it means the package is
+        # imported but the vulnerable function is NOT called. OSV entries
+        # without any finding are in dependencies but not even imported —
+        # those are excluded from VEX entirely.
+        CALLED_OSVS=$(jq -r 'select(.finding) | select(.finding.trace[0].function) | .finding.osv' govulncheck-output.json | sort -u)
+        ALL_FINDING_OSVS=$(jq -r 'select(.finding) | .finding.osv' govulncheck-output.json | sort -u)
+        NOT_CALLED_OSVS=$(comm -23 <(echo "$ALL_FINDING_OSVS") <(echo "$CALLED_OSVS"))
 
-        # 1. Get OSV IDs for CALLED (reachable) vulnerabilities
-        CALLED_OSVS=$(jq -r 'select(.finding) | select(.finding.trace[0].function) | .finding.osv' govulncheck-output.json | sort -u || true)
-
-        # 2. Get OSV IDs for all findings (called + not-called)
-        ALL_FINDING_OSVS=$(jq -r 'select(.finding) | .finding.osv' govulncheck-output.json | sort -u || true)
-
-        # 3. Not-called = findings that are NOT in the called set
-        NOT_CALLED_OSVS=$(comm -23 <(echo "$ALL_FINDING_OSVS") <(echo "$CALLED_OSVS") || true)
-
-        # Helper: resolve OSV IDs to CVE/GHSA aliases
         resolve_aliases() {
           local osv_ids="$1"
           local cves=""
           for osv in $osv_ids; do
-            aliases=$(jq -r "select(.osv) | select(.osv.id == \"$osv\") | .osv.aliases[]" govulncheck-output.json 2>/dev/null | sort -u || true)
+            aliases=$(jq -r "select(.osv) | select(.osv.id == \"$osv\") | .osv.aliases[]" govulncheck-output.json | sort -u)
             cves="$cves $aliases"
           done
-          # grep returns exit code 1 when no matches; use || true to avoid failing with set -e
-          echo "$cves" | tr ' ' '\n' | grep -E '^CVE-|^GHSA-' | sort -u || true
+          # grep returns 1 when no matches — `|| true` guards against set -e.
+          echo "$cves" | tr ' ' '\n' | { grep -E '^CVE-|^GHSA-' || true; } | sort -u
         }
 
         CALLED_CVES=$(resolve_aliases "$CALLED_OSVS")
         NOT_CALLED_CVES=$(resolve_aliases "$NOT_CALLED_OSVS")
 
-        # Print filtering summary
-        TOTAL_OSVS=$(jq -r 'select(.osv) | .osv.id' govulncheck-output.json | sort -u | wc -l | tr -d ' ')
-        FINDING_COUNT=$(echo "$ALL_FINDING_OSVS" | grep -c . || true)
-        CALLED_COUNT=$(echo "$CALLED_OSVS" | grep -c . || true)
-        NOT_CALLED_COUNT=$(echo "$NOT_CALLED_OSVS" | grep -c . || true)
-        EXCLUDED_COUNT=$((TOTAL_OSVS - FINDING_COUNT))
-
-        echo "============================================"
-        echo "govulncheck VEX filtering summary"
-        echo "============================================"
-        echo "Total OSV entries in dependencies: $TOTAL_OSVS"
-        echo "Excluded (not imported):           $EXCLUDED_COUNT"
-        echo "Called (reachable):                $CALLED_COUNT → status: under_investigation"
+        echo "=== govulncheck results ==="
+        echo "Called CVEs:     $(echo "$CALLED_CVES" | wc -w | tr -d ' ')"
         for cve in $CALLED_CVES; do echo "  - $cve"; done
-        echo "Not-called (imported only):        $NOT_CALLED_COUNT → status: not_affected"
+        echo "Not-called CVEs: $(echo "$NOT_CALLED_CVES" | wc -w | tr -d ' ')"
         for cve in $NOT_CALLED_CVES; do echo "  - $cve"; done
-        echo "============================================"
 
-        # Set outputs
-        echo "called-count=$CALLED_COUNT" >> "$GITHUB_OUTPUT"
-        echo "not-called-count=$NOT_CALLED_COUNT" >> "$GITHUB_OUTPUT"
+        BUNDLED_BINARY_CVES=""
+        if [ -n "${BUNDLED_IMAGE:-}" ]; then
+          echo "=== Trivy scan of bundled binaries ($BUNDLED_IMAGE) ==="
+          TRIVY_CVES=$(trivy image --quiet --format json --scanners vuln "$BUNDLED_IMAGE" \
+            | jq -r '.Results[] | select(.Target != "usr/local/bin/oci-explorer") | .Vulnerabilities[]? | .VulnerabilityID' \
+            | sort -u)
+          GOVULNCHECK_CVES=$(echo "$CALLED_CVES $NOT_CALLED_CVES" | tr ' ' '\n' | sort -u)
+          BUNDLED_BINARY_CVES=$(comm -23 <(echo "$TRIVY_CVES") <(echo "$GOVULNCHECK_CVES"))
+          echo "Bundled binary CVEs (not in our code): $(echo "$BUNDLED_BINARY_CVES" | wc -w | tr -d ' ')"
+          for cve in $BUNDLED_BINARY_CVES; do echo "  - $cve"; done
+        fi
 
-        FIRST=true
+        rm -f "$OUTPUT_FILE"
+        first=true
 
-        # Add called (reachable) vulnerabilities as under_investigation
+        add_statement() {
+          local cve="$1"
+          local status="$2"
+          local justification="$3"
+          local note="$4"
+          if [ "$first" = true ]; then
+            if [ "$status" = "not_affected" ]; then
+              vexctl create --author="$AUTHOR" --file="$OUTPUT_FILE" -p "$PRODUCT" \
+                -v "$cve" -s "$status" -j "$justification" \
+                --impact-statement "$note"
+            else
+              vexctl create --author="$AUTHOR" --file="$OUTPUT_FILE" -p "$PRODUCT" \
+                -v "$cve" -s "$status" \
+                --status-note "$note"
+            fi
+            first=false
+          else
+            if [ "$status" = "not_affected" ]; then
+              vexctl add --in-place -p "$PRODUCT" -v "$cve" -s "$status" \
+                -j "$justification" \
+                --impact-statement "$note" \
+                "$OUTPUT_FILE"
+            else
+              vexctl add --in-place -p "$PRODUCT" -v "$cve" -s "$status" \
+                --status-note "$note" \
+                "$OUTPUT_FILE"
+            fi
+          fi
+        }
+
         for CVE in $CALLED_CVES; do
-          if [ "$FIRST" = true ]; then
-            vexctl create \
-              --author="$AUTHOR" \
-              --file=vex.json \
-              -p "$PRODUCT" \
-              -v "$CVE" \
-              -s under_investigation \
-              --status-note "govulncheck reports this vulnerability as reachable in the call graph"
-            FIRST=false
-          else
-            vexctl add \
-              --in-place \
-              -p "$PRODUCT" \
-              -v "$CVE" \
-              -s under_investigation \
-              --status-note "govulncheck reports this vulnerability as reachable in the call graph" \
-              vex.json || true
-          fi
+          add_statement "$CVE" under_investigation "" \
+            "govulncheck reports this vulnerability as reachable in the call graph"
         done
 
-        # Add not-called (imported only) vulnerabilities as not_affected
         for CVE in $NOT_CALLED_CVES; do
-          if [ "$FIRST" = true ]; then
-            vexctl create \
-              --author="$AUTHOR" \
-              --file=vex.json \
-              -p "$PRODUCT" \
-              -v "$CVE" \
-              -s not_affected \
-              -j vulnerable_code_not_in_execute_path \
-              --impact-statement "Package is imported but the vulnerable function is not called"
-            FIRST=false
-          else
-            vexctl add \
-              --in-place \
-              -p "$PRODUCT" \
-              -v "$CVE" \
-              -s not_affected \
-              -j vulnerable_code_not_in_execute_path \
-              --impact-statement "Package is imported but the vulnerable function is not called" \
-              vex.json || true
-          fi
+          add_statement "$CVE" not_affected vulnerable_code_not_in_execute_path \
+            "Package is imported but the vulnerable function is not called"
         done
 
-        # If no findings at all, create a clean VEX document
-        if [ "$FIRST" = true ]; then
-          vexctl create \
-            --author="$AUTHOR" \
-            --file=vex.json \
-            -p "$PRODUCT" \
-            -v "NOASSERTION" \
-            -s not_affected \
-            -j vulnerable_code_not_in_execute_path \
+        for CVE in $BUNDLED_BINARY_CVES; do
+          add_statement "$CVE" not_affected vulnerable_code_not_in_execute_path \
+            "Vulnerability is in a bundled third-party binary, not in OCI Explorer code"
+        done
+
+        if [ "$first" = true ]; then
+          if [ -n "${BUNDLED_IMAGE:-}" ]; then
+            echo "::error::No VEX statements produced — govulncheck and Trivy both returned empty results, indicating a scanner failure"
+            exit 1
+          fi
+          # Preview mode (no bundled-image): write a clean placeholder so
+          # downstream steps still have a valid VEX document.
+          vexctl create --author="$AUTHOR" --file="$OUTPUT_FILE" -p "$PRODUCT" \
+            -v "NOASSERTION" -s not_affected -j vulnerable_code_not_in_execute_path \
             --impact-statement "govulncheck found no reachable or imported vulnerabilities"
         fi
 
-        echo "vex-path=vex.json" >> "$GITHUB_OUTPUT"
-
-        echo "Generated VEX document:"
-        cat vex.json
+        STMT_COUNT=$(jq '.statements | length' "$OUTPUT_FILE")
+        echo "statement-count=$STMT_COUNT" >> "$GITHUB_OUTPUT"
+        echo "Wrote $OUTPUT_FILE ($STMT_COUNT statements)"
+        cat "$OUTPUT_FILE"
