@@ -14,8 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Install Trivy
-        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.73.0/contrib/install.sh | sh -s -- -b /usr/local/bin v0.73.0
+      - uses: ./.github/actions/setup-trivy
 
       - name: Scan latest image for vulnerabilities
         id: scan

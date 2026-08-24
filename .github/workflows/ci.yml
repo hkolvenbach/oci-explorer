@@ -19,14 +19,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "24.19"
-          cache: "npm"
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build frontend
-        run: cd web && npm ci && npm run build
+      - uses: ./.github/actions/build-frontend
 
       - name: Check frontend types
         run: cd web && npm run check
@@ -38,8 +31,7 @@ jobs:
       - name: Verify and download dependencies
         run: go mod download && go mod verify
 
-      - name: Install Trivy
-        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.73.0/contrib/install.sh | sh -s -- -b /usr/local/bin v0.73.0
+      - uses: ./.github/actions/setup-trivy
 
       - name: Run tests
         run: go test -v ./...
@@ -56,14 +48,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "24.19"
-          cache: "npm"
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build frontend
-        run: cd web && npm ci && npm run build
+      - uses: ./.github/actions/build-frontend
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -85,18 +70,13 @@ jobs:
         with:
           go-version: "1.26.7"
 
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-
-      - name: Run govulncheck
-        run: govulncheck ./...
-
+      # Generate the VEX preview FIRST so it is uploaded even when the
+      # govulncheck gate below fails the job.
       - name: Generate OpenVEX document (preview)
-        if: always()
         uses: ./.github/actions/generate-vex
         with:
           product: "pkg:oci/${{ github.event.repository.name }}@sha256:ci-preview"
-          author: "${{ github.repository_owner }}"
+          author: ${{ github.repository_owner }}
 
       - name: Upload VEX document (preview)
         if: always()
@@ -105,3 +85,6 @@ jobs:
           name: vex-document-preview
           path: vex.json
           retention-days: 30
+
+      - name: Run govulncheck (gate)
+        run: govulncheck ./...

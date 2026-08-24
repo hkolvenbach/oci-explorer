@@ -1,0 +1,24 @@
+name: Build frontend
+description: Set up Node.js, install npm dependencies, and build the Svelte frontend into web/dist.
+
+inputs:
+  node-version:
+    description: 'Node.js version'
+    required: false
+    default: '24.19'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+        cache-dependency-path: web/package-lock.json
+
+    - name: Build frontend
+      shell: bash
+      run: |
+        cd web
+        npm ci
+        npm run build
