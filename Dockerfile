@@ -1,5 +1,5 @@
 # Frontend build stage
-FROM node:22.14-alpine AS frontend
+FROM node:24.19-alpine AS frontend
 
 WORKDIR /app/web
 
@@ -10,7 +10,7 @@ COPY web/ ./
 RUN npm run build
 
 # Go build stage
-FROM --platform=$BUILDPLATFORM golang:1.26.1-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
@@ -37,9 +37,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     -ldflags="-w -s -X main.Version=${VERSION}" -o /oci-explorer .
 
 # Trivy stage — download pinned release for the target platform
-FROM alpine:3.23 AS trivy-dl
+FROM alpine:3.24 AS trivy-dl
 
-ARG TRIVY_VERSION=0.69.3
+ARG TRIVY_VERSION=0.73.0
 
 RUN apk add --no-cache curl
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v${TRIVY_VERSION}

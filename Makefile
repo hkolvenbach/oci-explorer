@@ -10,7 +10,7 @@ PLATFORMS=linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 DOCKER_IMAGE=ghcr.io/hkolvenbach/oci-explorer
 DOCKER_PLATFORMS=linux/amd64,linux/arm64
 PORT ?= 8080
-TRIVY_VERSION ?= 0.69.3
+TRIVY_VERSION ?= 0.73.0
 
 all: deps build
 

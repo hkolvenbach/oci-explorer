@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: "22.14"
+          node-version: "24.19"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
 
@@ -37,13 +37,13 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: "1.26.1"
+          go-version: "1.26.5"
 
       - name: Verify dependencies
         run: go mod download && go mod verify
 
       - name: Install Trivy
-        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.3/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.73.0/contrib/install.sh | sh -s -- -b /usr/local/bin v0.73.0
 
       - name: Run tests
         run: go test -v ./...
@@ -86,13 +86,13 @@ jobs:
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
-          node-version: "22.14"
+          node-version: "24.19"
           cache: "npm"
           cache-dependency-path: web/package-lock.json
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: "1.26.1"
+          go-version: "1.26.5"
 
       - name: Verify dependencies
         run: go mod download && go mod verify
@@ -141,7 +141,7 @@ jobs:
 
       - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
         with:
-          go-version: "1.26.1"
+          go-version: "1.26.5"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
@@ -186,7 +186,7 @@ jobs:
           push-to-registry: true
 
       - name: Install Trivy
-        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.69.3/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3
+        run: curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.73.0/contrib/install.sh | sh -s -- -b /usr/local/bin v0.73.0
 
       - name: Generate and attach OpenVEX documents (per-platform)
         if: inputs.dry-run != true
