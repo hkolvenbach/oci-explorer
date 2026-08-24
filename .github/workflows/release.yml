@@ -170,7 +170,7 @@ jobs:
       - name: Sign image with cosign (keyless)
         if: inputs.dry-run != true
         run: |
-          cosign sign --yes --new-bundle-format=false \
+          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
             "${IMAGE}@${{ steps.docker-push.outputs.digest }}"
 
       - name: Attest build provenance for Docker image
@@ -206,7 +206,7 @@ jobs:
       - name: Attach VEX as cosign attestation
         if: inputs.dry-run != true
         run: |
-          cosign attest --yes --verbose --new-bundle-format=false \
+          cosign attest --yes --verbose --new-bundle-format=false --use-signing-config=false \
             --type openvex \
             --predicate vex.json \
             "${IMAGE}@${{ steps.docker-push.outputs.digest }}"
