@@ -229,13 +229,13 @@ jobs:
           OIDC_ISSUER="https://token.actions.githubusercontent.com"
 
           echo "=== 1. Cosign: verify image signature on the index ==="
-          cosign verify \
+          cosign verify --new-bundle-format=false \
             --certificate-identity-regexp="$CERT_IDENTITY" \
             --certificate-oidc-issuer="$OIDC_ISSUER" \
             "${IMAGE}@${INDEX_DIGEST}"
 
           echo "=== 2. Cosign: verify VEX attestation on the index ==="
-          cosign verify-attestation \
+          cosign verify-attestation --new-bundle-format=false \
             --type openvex \
             --certificate-identity-regexp="$CERT_IDENTITY" \
             --certificate-oidc-issuer="$OIDC_ISSUER" \
@@ -257,7 +257,7 @@ jobs:
           done
 
           echo "=== 4. Cosign: extract and validate VEX document ==="
-          cosign verify-attestation \
+          cosign verify-attestation --new-bundle-format=false \
             --type openvex \
             --certificate-identity-regexp="$CERT_IDENTITY" \
             --certificate-oidc-issuer="$OIDC_ISSUER" \
